@@ -10,7 +10,7 @@
 ##   4. Timer (CLINT / SBI timer)
 ##   5. Device tree parsing
 ##   6. SRVM (Sage RISC-V Virtual Machine)
-##   7. Shell  ← tries shell.sgvm first, falls back to shell.sage
+##   7. Shell  <- tries shell.sgvm first, falls back to shell.sage
 
 import srvm_core
 import srvm_vm
@@ -39,7 +39,7 @@ let UART_LSR_DR = 0x01
 
 ## .sgvm binary magic: first 4 bytes of every file compiled by
 ## `sagevm compile --riscv` are 0x53 0x47 0x4D 0x56 ('SGMV')
-let SGVM_MAGIC = 0x5647_4D53   ## little-endian u32 at offset 0
+let SGVM_MAGIC = 0x56474D53
 
 ## --- Console ---
 
@@ -245,7 +245,7 @@ proc dtb_init(dtb_addr):
     console_puts("\n")
 
 ## ---------------------------------------------------------------------------
-## SRVM — Sage RISC-V Virtual Machine
+## SRVM - Sage RISC-V Virtual Machine
 ## ---------------------------------------------------------------------------
 ## Global instance; nil until srvm_init() succeeds.
 
@@ -271,7 +271,7 @@ proc srvm_exec(bytecode):
 ## Strategy:
 ##   1. Check SRVM is alive.
 ##   2. Read the embedded .sgvm blob via linker boundary symbols.
-##   3. Validate the 4-byte magic ('SGMV', little-endian 0x5647_4D53).
+##   3. Validate the 4-byte magic ('SGMV', little-endian 0x56474D53).
 ##   4. Hand the bytecode to srvm_instance.run().
 ##   5. On ANY failure at steps 1-4: print a one-line diagnostic and
 ##      fall through to the built-in shell_main().
@@ -287,14 +287,14 @@ extern _shell_sgvm_end   : ptr
 proc shell_launch():
     ## --- Guard 1: SRVM must be ready ---
     if srvm_instance == nil:
-        console_puts("[shell] SRVM unavailable — using built-in shell\n")
+        console_puts("[shell] SRVM unavailable - using built-in shell\n")
         shell_main()
         return
 
     ## --- Guard 2: embedded blob must be non-empty ---
     let sgvm_size = _shell_sgvm_end - _shell_sgvm_start
     if sgvm_size == 0:
-        console_puts("[shell] shell.sgvm not embedded — using built-in shell\n")
+        console_puts("[shell] shell.sgvm not embedded - using built-in shell\n")
         shell_main()
         return
 
@@ -305,7 +305,7 @@ proc shell_launch():
     if magic != SGVM_MAGIC:
         console_puts("[shell] shell.sgvm magic mismatch (got ")
         console_put_hex(magic)
-        console_puts(") — using built-in shell\n")
+        console_puts(") - using built-in shell\n")
         shell_main()
         return
 
@@ -319,7 +319,7 @@ proc shell_launch():
     let bytecode = mem_read_bytes(_shell_sgvm_start, sgvm_size)
 
     ## Wrap in a try/except so a misbehaving bytecode blob cannot
-    ## crash the kernel — we catch and fall back instead.
+    ## crash the kernel - we catch and fall back instead.
     let run_ok = false
     try:
         srvm_instance.run(bytecode)
@@ -328,14 +328,13 @@ proc shell_launch():
         console_puts("[shell] SRVM shell exited with error\n")
 
     ## If SRVM shell exited cleanly (run_ok) we're done.
-    ## If it threw, drop into the built-in shell so the user
-    ## still has a working prompt.
+    ## If it threw, drop into the built-in shell.
     if not run_ok:
         console_puts("[shell] Falling back to built-in shell\n")
         shell_main()
 
 ## mem_read_bytes: read `count` bytes from bare-metal address `addr`
-## and return them as a list of integers — the format SRVM.run() expects.
+## and return them as a list of integers - the format SRVM.run() expects.
 proc mem_read_bytes(addr, count):
     let result = []
     let i = 0
@@ -373,12 +372,21 @@ proc shell_version():
 
 proc shell_mem():
     console_puts("Memory Statistics:\n")
-    console_puts("  Total pages: ")
+    console_puts("  Base:  ")
+    console_put_hex(MEM_BASE)
+    console_puts("\n  Size:  ")
+    console_put_dec(MEM_SIZE / 1024)
+    console_puts(" KB\n  Total pages: ")
     console_put_dec(pmm_total_pages)
     console_puts("\n  Free pages:  ")
     console_put_dec(pmm_free_pages)
     console_puts("\n  Used pages:  ")
     console_put_dec(pmm_total_pages - pmm_free_pages)
+    console_puts(" (")
+    console_put_dec((pmm_total_pages - pmm_free_pages) * 100 / pmm_total_pages)
+    console_puts("%")
+    console_puts(")\n  Free KB:     ")
+    console_put_dec(pmm_free_pages * PAGE_SIZE / 1024)
     console_puts("\n\n")
 
 proc shell_srvm():
@@ -395,7 +403,6 @@ proc shell_srvm():
     console_puts("  max_call_depth: ")
     console_put_dec(srvm_instance.state.max_call_depth)
     console_puts("\n")
-    ## Report whether shell.sgvm was loaded or not
     let sgvm_size = _shell_sgvm_end - _shell_sgvm_start
     console_puts("  shell.sgvm: ")
     if sgvm_size > 0:
@@ -440,7 +447,7 @@ proc shell_process(line):
         console_puts("Unknown command. Type 'help' for available commands.\n")
 
 proc shell_main():
-    console_puts("SageOS-RV Shell [built-in] (type 'help' for commands)\n\n")
+    console_puts("SageOS-RV Shell (type 'help' for commands)\n\n")
     shell_running = true
     let buf = ""
     while shell_running:
@@ -497,7 +504,7 @@ proc sage_kernel_main():
     console_puts("[6/7] Initializing SRVM...\n")
     srvm_init()
 
-    ## Phase 7: Shell — prefer shell.sgvm, fall back to shell.sage
+    ## Phase 7: Shell - prefer shell.sgvm, fall back to shell.sage
     console_puts("[7/7] Starting shell...\n\n")
     shell_launch()
 
