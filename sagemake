@@ -5,18 +5,21 @@ set -euo pipefail
 ## Usage: ./sagemake <command> [options]
 ##
 ## Commands:
-##   build          Compile boot, kernel, and produce OS image
-##   clean          Remove all build artifacts
-##   qemu           Run OS in QEMU emulator
-##   build-run      Build then run in QEMU
-##   image          Generate disk image
-##   flash          Flash image to SD card (requires device path)
-##   test           Run test suite
-##   bench          Run benchmarks
-##   version        Show version info
-##   compile-shell  Compile shell/shell.sage -> shell/shell.sgvm
-##   setup-srvm     Copy SRVM Sage sources from SageVM repo into kernel/
-##   help           Show this help
+##   build           Compile boot, kernel, and produce OS image
+##   clean           Remove all build artifacts
+##   qemu            Run OS in QEMU emulator
+##   build-run       Build then run in QEMU
+##   image           Generate disk image
+##   flash           Flash image to SD card (requires device path)
+##   test            Run test suite
+##   bench           Run benchmarks
+##   version         Show version info
+##   compile-kernel  Compile kernel/kmain.sage -> kernel/kmain.sgvm
+##   run-kernel      Run kernel/kmain.sgvm via sagevm
+##   compile-shell   Compile shell/shell.sage -> shell/shell.sgvm
+##   run-shell       Run shell/shell.sgvm via sagevm
+##   setup-srvm      Copy SRVM Sage sources from SageVM repo into kernel/
+##   help            Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/config/build.conf"
@@ -37,7 +40,7 @@ if [ -z "$SAGE" ]; then
 fi
 SAGE="${SAGE:-sage}"
 
-## Try multiple locations for SageVM compiler
+## Try multiple locations for SageVM binary
 SAGEVM="${SAGEVM:-}"
 if [ -z "$SAGEVM" ]; then
     for candidate in \
@@ -59,7 +62,6 @@ OBJCOPY="${RISCV_OBJCOPY:-riscv64-linux-gnu-objcopy}"
 QEMU="${QEMU_BIN:-qemu-system-riscv64}"
 OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin}"
 
-## SageVM repo location (sibling directory by default)
 SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/../SageVM}"
 
 ARCH="rv64"
@@ -82,46 +84,70 @@ warn()  { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
 fail()  { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
 
 ## ---------------------------------------------------------------------------
+## sagevm_check: return 0 if sagevm is usable, 1 otherwise
+## ---------------------------------------------------------------------------
+sagevm_check() {
+    command -v "$SAGEVM" >/dev/null 2>&1 || [ -x "$SAGEVM" ]
+}
+
+## ---------------------------------------------------------------------------
+## compile_kernel_sgvm
+## ---------------------------------------------------------------------------
+## sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv
+## Skips gracefully if sagevm not found or compilation fails.
+## ---------------------------------------------------------------------------
+compile_kernel_sgvm() {
+    local src="${SCRIPT_DIR}/kernel/kmain.sage"
+    local out="${SCRIPT_DIR}/kernel/kmain.sgvm"
+
+    if [ ! -f "${src}" ]; then
+        warn "kernel/kmain.sage not found - skipping kmain.sgvm compilation"
+        return
+    fi
+
+    if ! sagevm_check; then
+        warn "sagevm not found (SAGEVM=${SAGEVM}) - skipping kmain.sgvm compilation"
+        return
+    fi
+
+    info "Compiling kernel/kmain.sage -> kernel/kmain.sgvm ..."
+    if "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1; then
+        ok "kmain.sgvm ($(wc -c < "${out}") bytes)"
+    else
+        warn "sagevm compile kernel failed - C transpile path will be used"
+    fi
+}
+
+## ---------------------------------------------------------------------------
 ## compile_shell_sgvm
 ## ---------------------------------------------------------------------------
-## Run: sagevm compile shell/shell.sage shell/shell.sgvm --riscv
-## Skips gracefully if sagevm is not found or compilation fails so the
-## build can still proceed using a previously compiled shell.sgvm.
+## sagevm compile shell/shell.sage shell/shell.sgvm --riscv
 ## ---------------------------------------------------------------------------
 compile_shell_sgvm() {
-    local shell_src="${SCRIPT_DIR}/shell/shell.sage"
-    local shell_out="${SCRIPT_DIR}/shell/shell.sgvm"
+    local src="${SCRIPT_DIR}/shell/shell.sage"
+    local out="${SCRIPT_DIR}/shell/shell.sgvm"
 
-    if [ ! -f "${shell_src}" ]; then
+    if [ ! -f "${src}" ]; then
         warn "shell/shell.sage not found - skipping shell.sgvm compilation"
         return
     fi
 
-    if ! command -v "$SAGEVM" >/dev/null 2>&1 && [ ! -x "$SAGEVM" ]; then
+    if ! sagevm_check; then
         warn "sagevm not found (SAGEVM=${SAGEVM}) - skipping shell.sgvm compilation"
         warn "  To compile manually: sagevm compile shell/shell.sage shell/shell.sgvm --riscv"
         return
     fi
 
     info "Compiling shell/shell.sage -> shell/shell.sgvm ..."
-    if "$SAGEVM" compile "${shell_src}" "${shell_out}" --riscv 2>&1; then
-        ok "shell.sgvm ($(wc -c < "${shell_out}") bytes)"
+    if "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1; then
+        ok "shell.sgvm ($(wc -c < "${out}") bytes)"
     else
-        warn "sagevm compile failed - using existing shell.sgvm if present"
+        warn "sagevm compile shell failed - using existing shell.sgvm if present"
     fi
 }
 
 ## ---------------------------------------------------------------------------
 ## embed_shell_sgvm
-## ---------------------------------------------------------------------------
-## Convert shell/shell.sgvm into a linkable ELF object whose section is
-## renamed to .sgvm_shell.  The linker.ld .sgvm_shell section provides
-## _shell_sgvm_start and _shell_sgvm_end boundary symbols so the kernel
-## can locate the blob at runtime.
-##
-## If shell.sgvm does not exist the function emits a warning and writes
-## an empty sentinel object so _shell_sgvm_start == _shell_sgvm_end and
-## the kernel's shell_launch() falls back to the built-in shell.
 ## ---------------------------------------------------------------------------
 embed_shell_sgvm() {
     local sgvm_src="${SCRIPT_DIR}/shell/shell.sgvm"
@@ -129,7 +155,6 @@ embed_shell_sgvm() {
 
     if [ ! -f "${sgvm_src}" ]; then
         warn "shell/shell.sgvm not found - built-in shell fallback will be used"
-        warn "  To embed: sagevm compile shell/shell.sage shell/shell.sgvm --riscv"
         printf '\0' | $OBJCOPY \
             -I binary -O elf64-littleriscv \
             --rename-section .data=.sgvm_shell \
@@ -140,7 +165,6 @@ embed_shell_sgvm() {
     fi
 
     info "Embedding shell/shell.sgvm ($(wc -c < "${sgvm_src}") bytes)..."
-
     $OBJCOPY \
         -I binary \
         -O elf64-littleriscv \
@@ -148,8 +172,8 @@ embed_shell_sgvm() {
         --rename-section .data=.sgvm_shell \
         --set-section-flags .sgvm_shell=alloc,load,readonly \
         "${sgvm_src}" "${sgvm_obj}" \
-        && ok "shell_sgvm.o ($(wc -c < "${sgvm_src}") bytes embedded)" \
-        || { warn "objcopy failed - built-in shell fallback will be used"; }
+        && ok "shell_sgvm.o embedded" \
+        || warn "objcopy failed - built-in shell fallback will be used"
 
     echo "${sgvm_obj}"
 }
@@ -168,7 +192,7 @@ cmd_ensure_srvm() {
         cp "${srvm_src}/srvm_vm.sage"   "${kernel_dir}/srvm_vm.sage"
         ok "SRVM sources staged in kernel/"
     else
-        warn "SAGEVM_DIR not found (${srvm_src}). Set SAGEVM_DIR or run './sagemake setup-srvm'."
+        warn "SAGEVM_DIR not found (${SAGEVM_DIR}). Set SAGEVM_DIR or run './sagemake setup-srvm'."
         warn "SRVM will be unavailable; kernel will compile without VM support."
     fi
 }
@@ -183,12 +207,45 @@ cmd_setup_srvm() {
     cp "${srvm_src}/srvm_vm.sage"   "${SCRIPT_DIR}/kernel/srvm_vm.sage"
     ok "kernel/srvm_core.sage"
     ok "kernel/srvm_vm.sage"
-    info "Run: git add kernel/srvm_core.sage kernel/srvm_vm.sage && git commit -m 'chore: bundle SRVM sources'"
+    info "Run: git add kernel/srvm_core.sage kernel/srvm_vm.sage && git commit"
+}
+
+## ---------------------------------------------------------------------------
+## Standalone compile/run commands
+## ---------------------------------------------------------------------------
+cmd_compile_kernel() {
+    compile_kernel_sgvm
+}
+
+cmd_run_kernel() {
+    local sgvm="${SCRIPT_DIR}/kernel/kmain.sgvm"
+    if [ ! -f "${sgvm}" ]; then
+        fail "kernel/kmain.sgvm not found. Run './sagemake compile-kernel' first."
+    fi
+    if ! sagevm_check; then
+        fail "sagevm not found (SAGEVM=${SAGEVM})."
+    fi
+    printf "\n${BOLD}  Running kmain.sgvm via sagevm${RESET}\n"
+    printf "  ${DIM}%s${RESET}\n\n" "${sgvm}"
+    "$SAGEVM" run "${sgvm}"
 }
 
 cmd_compile_shell() {
     mkdir -p "${SCRIPT_DIR}/shell"
     compile_shell_sgvm
+}
+
+cmd_run_shell() {
+    local sgvm="${SCRIPT_DIR}/shell/shell.sgvm"
+    if [ ! -f "${sgvm}" ]; then
+        fail "shell/shell.sgvm not found. Run './sagemake compile-shell' first."
+    fi
+    if ! sagevm_check; then
+        fail "sagevm not found (SAGEVM=${SAGEVM})."
+    fi
+    printf "\n${BOLD}  Running shell.sgvm via sagevm${RESET}\n"
+    printf "  ${DIM}%s${RESET}\n\n" "${sgvm}"
+    "$SAGEVM" run "${sgvm}"
 }
 
 cmd_build() {
@@ -197,7 +254,7 @@ cmd_build() {
 
     mkdir -p "$BUILD_DIR" "$IMAGE_DIR"
 
-    ## Ensure SRVM Sage sources are in kernel/ before transpilation
+    ## Ensure SRVM Sage sources are in kernel/
     cmd_ensure_srvm
 
     ## Step 1: Generate boot assembly from Sage
@@ -212,14 +269,17 @@ cmd_build() {
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly compilation failed"
 
-    ## Step 3a: Compile shell.sage -> shell.sgvm (if sagevm available)
+    ## Step 3a: Compile kernel/kmain.sage -> kmain.sgvm
+    compile_kernel_sgvm
+
+    ## Step 3b: Compile shell/shell.sage -> shell.sgvm
     compile_shell_sgvm
 
-    ## Step 3b: Convert shell.sgvm -> linkable ELF object
+    ## Step 3c: Convert shell.sgvm -> linkable ELF object
     local sgvm_obj
     sgvm_obj=$(embed_shell_sgvm)
 
-    ## Step 3c: Transpile kernel Sage -> C
+    ## Step 3d: Transpile kernel Sage -> C (fallback / C linker path)
     info "Compiling kernel from Sage to C..."
     if ! $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" -o "${BUILD_DIR}/kernel.c" 2>/dev/null; then
         warn "Sage kernel emit failed, using fallback"
@@ -248,7 +308,9 @@ cmd_build() {
     ## Step 4: Compile drivers
     info "Compiling drivers..."
     for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
-        local name=$(basename "$sage_file" .sage)
+        [ -f "$sage_file" ] || continue
+        local name
+        name=$(basename "$sage_file" .sage)
         if $SAGE --emit-c "$sage_file" -o "${BUILD_DIR}/drv_${name}.c" 2>/dev/null; then
             $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
                 -c "${BUILD_DIR}/drv_${name}.c" -o "${BUILD_DIR}/drv_${name}.o" 2>/dev/null \
@@ -260,7 +322,7 @@ cmd_build() {
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
     local drv_objs=()
-    for f in ${BUILD_DIR}/drv_*.o; do
+    for f in "${BUILD_DIR}"/drv_*.o; do
         [ -f "$f" ] && drv_objs+=("$f")
     done
 
@@ -283,11 +345,16 @@ cmd_build() {
         ok "Created sageos.bin"
     fi
 
-    ## Report shell mode
-    if [ -f "${SCRIPT_DIR}/shell/shell.sgvm" ]; then
-        ok "Shell mode: shell.sgvm (SRVM bytecode, $(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm") bytes)"
+    ## Report modes
+    if [ -f "${SCRIPT_DIR}/kernel/kmain.sgvm" ]; then
+        ok "Kernel mode: kmain.sgvm ($(wc -c < "${SCRIPT_DIR}/kernel/kmain.sgvm") bytes, MetalVM)"
     else
-        warn "Shell mode: built-in fallback (shell.sage)"
+        warn "Kernel mode: C transpile only (kmain.sgvm not built)"
+    fi
+    if [ -f "${SCRIPT_DIR}/shell/shell.sgvm" ]; then
+        ok "Shell mode:  shell.sgvm ($(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm") bytes, SRVM)"
+    else
+        warn "Shell mode:  built-in fallback"
     fi
 
     printf "\n  ${DIM}Build complete.${RESET}\n\n"
@@ -305,7 +372,6 @@ cmd_qemu() {
     local kernel_bin="${IMAGE_DIR}/sageos.bin"
     local kernel_elf="${BUILD_DIR}/sageos.elf"
 
-    local kernel_arg=""
     if [ -f "$kernel_elf" ]; then
         kernel_arg="-kernel $kernel_elf"
     elif [ -f "$kernel_bin" ]; then
@@ -344,7 +410,9 @@ cmd_image() {
 cmd_test() {
     info "Running test suite..."
     for test_file in "${SCRIPT_DIR}"/tests/*.sage; do
-        local name=$(basename "$test_file")
+        [ -f "$test_file" ] || continue
+        local name
+        name=$(basename "$test_file")
         printf "  ${CYAN}%-30s${RESET}" "$name"
         if $SAGE --runtime ast "$test_file" > /dev/null 2>&1; then
             printf "${GREEN}PASS${RESET}\n"
@@ -355,12 +423,13 @@ cmd_test() {
 }
 
 cmd_version() {
-    local ver=$(cat "${SCRIPT_DIR}/VERSION" 2>/dev/null || echo "unknown")
+    local ver
+    ver=$(cat "${SCRIPT_DIR}/VERSION" 2>/dev/null || echo "unknown")
     printf "SageOS-RV version %s\n" "$ver"
     printf "Board: %s\n" "$BOARD"
     printf "Arch: %s\n" "$ARCH"
     $SAGE --version 2>/dev/null || true
-    $SAGEVM --version 2>/dev/null || true
+    "$SAGEVM" --version 2>/dev/null || true
     $QEMU --version 2>/dev/null | head -1 || true
 }
 
@@ -369,15 +438,18 @@ cmd_help() {
 }
 
 case "${1:-help}" in
-    build)         cmd_build ;;
-    clean)         cmd_clean ;;
-    qemu)          cmd_qemu ;;
-    build-run)     cmd_build_run ;;
-    image)         cmd_image ;;
-    test)          cmd_test ;;
-    version)       cmd_version ;;
-    compile-shell) cmd_compile_shell ;;
-    setup-srvm)    cmd_setup_srvm ;;
-    help|--help|-h) cmd_help ;;
-    *)             echo "Unknown command: $1"; cmd_help; exit 1 ;;
+    build)           cmd_build ;;
+    clean)           cmd_clean ;;
+    qemu)            cmd_qemu ;;
+    build-run)       cmd_build_run ;;
+    image)           cmd_image ;;
+    test)            cmd_test ;;
+    version)         cmd_version ;;
+    compile-kernel)  cmd_compile_kernel ;;
+    run-kernel)      cmd_run_kernel ;;
+    compile-shell)   cmd_compile_shell ;;
+    run-shell)       cmd_run_shell ;;
+    setup-srvm)      cmd_setup_srvm ;;
+    help|--help|-h)  cmd_help ;;
+    *)               echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
