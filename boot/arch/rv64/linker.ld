@@ -1,15 +1,15 @@
 /*
- * linker.ld — SageOS-RV linker script
+ * linker.ld - SageOS-RV linker script
  *
  * Memory map (QEMU virt, OpenSBI loads kernel at 0x80200000):
  *
- *   0x80200000  .text       — kernel code
- *   ...         .rodata     — read-only data (strings, tables)
- *   ...         .sgvm_shell — embedded shell.sgvm bytecode blob
- *   ...         .data       — initialised read-write data
- *   ...         .bss        — zero-initialised data
- *   ...         _heap_start — start of physical page allocator arena
- *   0x88000000  _heap_end   — end of usable RAM (128 MB from 0x80000000)
+ *   0x80200000  .text        - kernel code
+ *   ...         .rodata      - read-only data (strings, tables)
+ *   ...         .sgvm_shell  - embedded shell.sgvm bytecode blob
+ *   ...         .data        - initialised read-write data
+ *   ...         .bss         - zero-initialised data
+ *   ...         _heap_start  - start of physical page allocator arena
+ *   0x88000000  _heap_end    - end of usable RAM (128 MB from 0x80000000)
  *
  * The .sgvm_shell section is populated by objcopy in sagemake.
  * _shell_sgvm_start / _shell_sgvm_end are exposed as extern symbols
@@ -27,45 +27,38 @@ MEMORY {
 
 SECTIONS {
 
-    /* ------------------------------------------------------------------ */
-    /* Kernel code                                                         */
-    /* ------------------------------------------------------------------ */
+    /* Kernel code */
     .text : {
         KEEP(*(.text.boot))
         *(.text .text.*)
     } > RAM
 
-    /* ------------------------------------------------------------------ */
-    /* Read-only data                                                      */
-    /* ------------------------------------------------------------------ */
+    /* Read-only data */
     .rodata : {
         *(.rodata .rodata.*)
     } > RAM
 
-    /* ------------------------------------------------------------------ */
-    /* Embedded shell bytecode                                            */
-    /*                                                                     */
-    /* objcopy (embed_shell_sgvm in sagemake) produces shell_sgvm.o with  */
-    /* the blob in a section named .sgvm_shell.  We KEEP it so the linker */
-    /* does not discard it as unused, and expose start/end symbols.       */
-    /* ------------------------------------------------------------------ */
+    /*
+     * Embedded shell bytecode
+     *
+     * objcopy (embed_shell_sgvm in sagemake) produces shell_sgvm.o with
+     * the blob in a section named .sgvm_shell.  KEEP() prevents the
+     * linker discarding it as unreferenced.  The boundary symbols are
+     * read by shell_launch() in kmain.sage at runtime.
+     */
     .sgvm_shell : {
         _shell_sgvm_start = .;
         KEEP(*(.sgvm_shell))
         _shell_sgvm_end = .;
     } > RAM
 
-    /* ------------------------------------------------------------------ */
-    /* Initialised data                                                    */
-    /* ------------------------------------------------------------------ */
+    /* Initialised data */
     .data : {
         *(.data .data.*)
         *(.sdata .sdata.*)
     } > RAM
 
-    /* ------------------------------------------------------------------ */
-    /* Zero-initialised data                                              */
-    /* ------------------------------------------------------------------ */
+    /* Zero-initialised data */
     .bss : {
         _bss_start = .;
         *(.bss .bss.*)
@@ -74,15 +67,13 @@ SECTIONS {
         _bss_end = .;
     } > RAM
 
-    /* ------------------------------------------------------------------ */
-    /* Heap / PMM arena                                                    */
-    /* ------------------------------------------------------------------ */
+    /* Heap / PMM arena */
     . = ALIGN(4096);
     _heap_start = .;
     _image_end  = .;
 
-    _heap_end   = ORIGIN(RAM) + LENGTH(RAM);
-    _stack_top  = _heap_end;
+    _heap_end  = ORIGIN(RAM) + LENGTH(RAM);
+    _stack_top = _heap_end;
 
     /DISCARD/ {
         *(.note*)
