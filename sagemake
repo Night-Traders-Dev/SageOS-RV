@@ -5,16 +5,17 @@ set -euo pipefail
 ## Usage: ./sagemake <command> [options]
 ##
 ## Commands:
-##   build       Compile boot, kernel, and produce OS image
-##   clean       Remove all build artifacts
-##   qemu        Run OS in QEMU emulator
-##   build-run   Build then run in QEMU
-##   image       Generate disk image
-##   flash       Flash image to SD card (requires device path)
-##   test        Run test suite
-##   bench       Run benchmarks
-##   version     Show version info
-##   help        Show this help
+##   build        Compile boot, kernel, and produce OS image
+##   clean        Remove all build artifacts
+##   qemu         Run OS in QEMU emulator
+##   build-run    Build then run in QEMU
+##   image        Generate disk image
+##   flash        Flash image to SD card (requires device path)
+##   test         Run test suite
+##   bench        Run benchmarks
+##   version      Show version info
+##   setup-srvm   Copy SRVM Sage sources from SageVM repo into kernel/
+##   help         Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/config/build.conf"
@@ -40,6 +41,9 @@ OBJCOPY="${RISCV_OBJCOPY:-riscv64-linux-gnu-objcopy}"
 QEMU="${QEMU_BIN:-qemu-system-riscv64}"
 OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin}"
 
+## SageVM repo location (sibling directory by default)
+SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/../SageVM}"
+
 ARCH="rv64"
 BOARD="${BOARD:-qemu-virt}"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -59,11 +63,49 @@ ok()    { printf "${GREEN}  [OK]${RESET}   %s\n" "$1"; }
 warn()  { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
 fail()  { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
 
+## Ensure SRVM Sage sources are present in kernel/ before transpilation.
+## Copies from SAGEVM_DIR if available, otherwise checks for bundled copies.
+cmd_ensure_srvm() {
+    local srvm_src="${SAGEVM_DIR}/src/srvm"
+    local kernel_dir="${SCRIPT_DIR}/kernel"
+
+    if [ -f "${kernel_dir}/srvm_core.sage" ] && [ -f "${kernel_dir}/srvm_vm.sage" ]; then
+        return 0  # already present
+    fi
+
+    if [ -d "${srvm_src}" ]; then
+        info "Copying SRVM sources from ${srvm_src}..."
+        cp "${srvm_src}/srvm_core.sage" "${kernel_dir}/srvm_core.sage"
+        cp "${srvm_src}/srvm_vm.sage"   "${kernel_dir}/srvm_vm.sage"
+        ok "SRVM sources staged in kernel/"
+    else
+        warn "SAGEVM_DIR not found (${srvm_src}). Set SAGEVM_DIR or run './sagemake setup-srvm'."
+        warn "SRVM will be unavailable; kernel will compile without VM support."
+    fi
+}
+
+## Explicit setup command: copies SRVM sources + commits them as bundled
+cmd_setup_srvm() {
+    local srvm_src="${SAGEVM_DIR}/src/srvm"
+    if [ ! -d "${srvm_src}" ]; then
+        fail "SageVM not found at ${SAGEVM_DIR}. Set SAGEVM_DIR=/path/to/SageVM"
+    fi
+    info "Staging SRVM sources from ${srvm_src} into kernel/..."
+    cp "${srvm_src}/srvm_core.sage" "${SCRIPT_DIR}/kernel/srvm_core.sage"
+    cp "${srvm_src}/srvm_vm.sage"   "${SCRIPT_DIR}/kernel/srvm_vm.sage"
+    ok "kernel/srvm_core.sage"
+    ok "kernel/srvm_vm.sage"
+    info "Run: git add kernel/srvm_core.sage kernel/srvm_vm.sage && git commit -m 'chore: bundle SRVM sources'"
+}
+
 cmd_build() {
     printf "\n${BOLD}  SageOS-RV Build${RESET}\n"
     printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH"
 
     mkdir -p "$BUILD_DIR" "$IMAGE_DIR"
+
+    ## Ensure SRVM Sage sources are in kernel/ before transpilation
+    cmd_ensure_srvm
 
     ## Step 1: Generate boot assembly from Sage
     info "Generating boot assembly from Sage..."
@@ -78,6 +120,8 @@ cmd_build() {
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly compilation failed"
 
     ## Step 3: Compile kernel
+    ## sage --emit-c resolves imports relative to the source file's directory,
+    ## so srvm_core.sage + srvm_vm.sage must live alongside kmain.sage in kernel/
     info "Compiling kernel from Sage to C..."
     if ! $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" -o "${BUILD_DIR}/kernel.c" 2>/dev/null; then
         warn "Sage kernel emit failed, using fallback"
@@ -215,13 +259,14 @@ cmd_help() {
 }
 
 case "${1:-help}" in
-    build)      cmd_build ;;
-    clean)      cmd_clean ;;
-    qemu)       cmd_qemu ;;
-    build-run)  cmd_build_run ;;
-    image)      cmd_image ;;
-    test)       cmd_test ;;
-    version)    cmd_version ;;
+    build)       cmd_build ;;
+    clean)       cmd_clean ;;
+    qemu)        cmd_qemu ;;
+    build-run)   cmd_build_run ;;
+    image)       cmd_image ;;
+    test)        cmd_test ;;
+    version)     cmd_version ;;
+    setup-srvm)  cmd_setup_srvm ;;
     help|--help|-h) cmd_help ;;
-    *)          echo "Unknown command: $1"; cmd_help; exit 1 ;;
+    *)           echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac

@@ -9,8 +9,12 @@
 ##   3. Interrupts (PLIC + trap vector)
 ##   4. Timer (CLINT / SBI timer)
 ##   5. Device tree parsing
-##   6. VFS init
+##   6. SRVM (Sage RISC-V Virtual Machine)
 ##   7. Shell or init process
+
+import srvm_core
+import srvm_vm
+from srvm_vm import SRVM
 
 ## --- Kernel Configuration ---
 
@@ -250,6 +254,39 @@ proc dtb_init(dtb_addr):
     console_put_hex(dtb_addr)
     console_puts("\n")
 
+## --- SRVM (Sage RISC-V Virtual Machine) ---
+## Global VM instance — initialized once, shared across shell commands.
+## SRVM is pure Sage: no libc, no malloc, no host OS dependencies.
+## It interprets SageVM RV64I bytecode stored in the constants pool.
+
+var srvm_instance = nil
+
+proc srvm_init():
+    console_puts("[SRVM] Initializing Sage RISC-V VM...\n")
+    srvm_instance = SRVM()
+    srvm_instance.state.safe_mode = true   ## Enforce call/array/try depth limits
+    console_puts("[SRVM] Ready (safe_mode=true, max_call_depth=")
+    console_put_dec(srvm_instance.state.max_call_depth)
+    console_puts(")\n")
+
+## Run a bytecode payload through SRVM.
+## bytecode is a list of byte-sized integers (little-endian 32-bit words).
+proc srvm_exec(bytecode):
+    if srvm_instance == nil:
+        console_puts("[SRVM] Not initialized\n")
+        return
+    srvm_instance.run(bytecode)
+
+## Demo payload: encode a single HALT instruction (OP_VMSYS, f3=F3_VM_OPS, rs1=VMO_HALT)
+## Encoding: opcode=0x73, rd=0, funct3=0x000, rs1=VMO_HALT(0x01), rs2=0, funct7=0
+## raw = 0x73 | (0x01 << 15) = 0x00008073
+proc srvm_run_demo():
+    console_puts("[SRVM] Running demo (HALT instruction)...\n")
+    ## 0x00008073 in little-endian bytes: 0x73, 0x80, 0x00, 0x00
+    let demo_bytecode = [0x73, 0x80, 0x00, 0x00]
+    srvm_exec(demo_bytecode)
+    console_puts("[SRVM] Demo complete\n")
+
 ## --- Kernel Banner ---
 
 proc print_banner():
@@ -265,6 +302,107 @@ proc print_banner():
     console_puts("========================================\n")
     console_puts("\n")
 
+## --- Shell ---
+
+let shell_running = true
+
+proc shell_help():
+    console_puts("SageOS-RV Shell Commands:\n")
+    console_puts("  help       Show this help\n")
+    console_puts("  version    Show kernel version\n")
+    console_puts("  mem        Show memory statistics\n")
+    console_puts("  srvm       Show SRVM status and run demo\n")
+    console_puts("  about      About SageOS\n")
+    console_puts("  halt       Halt the CPU\n")
+    console_puts("  echo <text> Print text\n\n")
+
+proc shell_version():
+    console_puts("SageOS-RV v")
+    console_puts(KERNEL_VERSION)
+    console_puts("\nKernel: ")
+    console_puts(KERNEL_NAME)
+    console_puts("\nArch: RISC-V 64 (rv64imac)\n")
+    console_puts("VM: SRVM (Sage RISC-V VM, pure Sage)\n\n")
+
+proc shell_mem():
+    console_puts("Memory Statistics:\n")
+    console_puts("  Total pages: ")
+    console_put_dec(pmm_total_pages)
+    console_puts("\n  Free pages:  ")
+    console_put_dec(pmm_free_pages)
+    console_puts("\n  Used pages:  ")
+    console_put_dec(pmm_total_pages - pmm_free_pages)
+    console_puts("\n\n")
+
+proc shell_srvm():
+    console_puts("SRVM Status:\n")
+    if srvm_instance == nil:
+        console_puts("  State: not initialized\n\n")
+        return
+    console_puts("  State: ready\n")
+    console_puts("  safe_mode: ")
+    if srvm_instance.state.safe_mode:
+        console_puts("true\n")
+    else:
+        console_puts("false\n")
+    console_puts("  max_call_depth: ")
+    console_put_dec(srvm_instance.state.max_call_depth)
+    console_puts("\n")
+    console_puts("  Running demo bytecode...\n")
+    srvm_run_demo()
+    console_puts("\n")
+
+proc shell_about():
+    console_puts("SageOS-RV -- A Pure Sage Operating System\n")
+    console_puts("Target: LicheeRV Nano (Sophgo SG2002, RISC-V 64)\n")
+    console_puts("Philosophy: C only where silicon requires it.\n")
+    console_puts("            Everything else is Pure Sage.\n\n")
+    console_puts("VM: SRVM from SageVM (github.com/Night-Traders-Dev/SageVM)\n")
+    console_puts("    RV64I bytecode interpreter, pure Sage, no libc.\n\n")
+
+proc shell_process(line):
+    if line == "help":
+        shell_help()
+    elif line == "version":
+        shell_version()
+    elif line == "mem":
+        shell_mem()
+    elif line == "srvm":
+        shell_srvm()
+    elif line == "about":
+        shell_about()
+    elif line == "halt":
+        console_puts("System halting...\n")
+        shell_running = false
+    else:
+        ## echo prefix
+        if len(line) > 5:
+            let prefix = line[0] + line[1] + line[2] + line[3]
+            if prefix == "echo":
+                let i = 5
+                while i < len(line):
+                    uart_putc(char_to_int(line, i))
+                    i = i + 1
+                uart_putc(10)
+                return
+        if len(line) > 0:
+            console_puts("Unknown command. Type 'help' for available commands.\n")
+
+proc shell_main():
+    console_puts("SageOS-RV Shell (type 'help' for commands)\n\n")
+    let buf = ""
+    while shell_running:
+        console_puts("sage# ")
+        buf = ""
+        let c = uart_getc()
+        while c != 10 and c != 13:
+            if c >= 32 and c < 127:
+                uart_putc(c)
+                buf = buf + chr(c)
+            c = uart_getc()
+        uart_putc(10)
+        shell_process(buf)
+
 ## --- Kernel Main ---
 ## This is the C-callable entry point from boot.S
 ## It receives hart_id in a0 and dtb_addr in a1
@@ -274,26 +412,30 @@ proc sage_kernel_main():
     console_init()
     print_banner()
 
-    console_puts("[1/6] Console initialized\n")
+    console_puts("[1/7] Console initialized\n")
 
     ## Phase 2: Memory
-    console_puts("[2/6] Initializing memory...\n")
+    console_puts("[2/7] Initializing memory...\n")
     pmm_init(MEM_BASE, MEM_SIZE)
 
     ## Phase 3: Interrupts
-    console_puts("[3/6] Initializing interrupts...\n")
+    console_puts("[3/7] Initializing interrupts...\n")
     interrupt_init()
 
     ## Phase 4: Timer
-    console_puts("[4/6] Initializing timer...\n")
+    console_puts("[4/7] Initializing timer...\n")
     timer_init()
 
     ## Phase 5: Device Tree
-    console_puts("[5/6] Parsing device tree...\n")
+    console_puts("[5/7] Parsing device tree...\n")
     dtb_init(0)
 
-    ## Phase 6: Shell
-    console_puts("[6/6] Starting shell...\n\n")
+    ## Phase 6: SRVM
+    console_puts("[6/7] Initializing SRVM...\n")
+    srvm_init()
+
+    ## Phase 7: Shell
+    console_puts("[7/7] Starting shell...\n\n")
 
     ## Drop to shell
     shell_main()

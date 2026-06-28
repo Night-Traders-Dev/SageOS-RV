@@ -6,6 +6,11 @@
  *
  * As SageLang's bare-metal code generation matures, this file
  * will be replaced by transpiled Sage code.
+ *
+ * NOTE: SRVM (Sage RISC-V VM) is a pure Sage module. It is
+ * available via kmain.sage -> sage --emit-c transpilation.
+ * This C fallback reports its availability but cannot invoke
+ * it directly — there is no C API, by design.
  */
 
 #include <stdint.h>
@@ -184,7 +189,6 @@ static void pmm_free(uint64_t addr) {
         pmm_mark_free(page_idx);
 }
 
-/* Linker symbols — take their address to get the actual value */
 /* Shell */
 static int shell_running = 1;
 
@@ -193,6 +197,7 @@ static void cmd_help(void) {
     uart_puts("  help       Show this help\n");
     uart_puts("  version    Show kernel version\n");
     uart_puts("  mem        Show memory statistics\n");
+    uart_puts("  srvm       SRVM status (Sage transpilation required)\n");
     uart_puts("  clear      Clear screen\n");
     uart_puts("  uptime     Show system uptime\n");
     uart_puts("  reboot     Cold reboot the system\n");
@@ -207,7 +212,8 @@ static void cmd_version(void) {
     uart_puts("Kernel: SageOS-RV\n");
     uart_puts("Arch: RISC-V 64 (rv64imac)\n");
     uart_puts("SBI: v3.0\n");
-    uart_puts("Build: fallback C kernel (Sage transpilation pending)\n\n");
+    uart_puts("Build: fallback C kernel (Sage transpilation pending)\n");
+    uart_puts("VM:    SRVM (available after sage --emit-c transpilation)\n\n");
 }
 
 static void cmd_mem(void) {
@@ -232,6 +238,18 @@ static void cmd_mem(void) {
     uart_puts("\n\n");
 }
 
+static void cmd_srvm(void) {
+    uart_puts("SRVM (Sage RISC-V VM):\n");
+    uart_puts("  Source: github.com/Night-Traders-Dev/SageVM src/srvm/\n");
+    uart_puts("  Status: unavailable in C fallback kernel\n");
+    uart_puts("  Reason: SRVM is a pure Sage module (srvm_vm.sage +\n");
+    uart_puts("          srvm_core.sage). It is instantiated from\n");
+    uart_puts("          kmain.sage via 'import srvm_vm' and compiled\n");
+    uart_puts("          by 'sage --emit-c kernel/kmain.sage'.\n");
+    uart_puts("  Action: run './sagemake build' with a working Sage\n");
+    uart_puts("          compiler to get SRVM in the kernel.\n\n");
+}
+
 static void cmd_clear(void) {
     uart_puts("\033[2J\033[H");
 }
@@ -247,9 +265,8 @@ static void cmd_about(void) {
     uart_puts("Target: LicheeRV Nano (Sophgo SG2002, RISC-V 64)\n");
     uart_puts("Philosophy: C only where silicon requires it.\n");
     uart_puts("            Everything else is Pure Sage.\n\n");
-    uart_puts("This is the canonical demonstration that SageLang\n");
-    uart_puts("can build a complete software stack from bare metal\n");
-    uart_puts("to applications.\n\n");
+    uart_puts("VM: SRVM from SageVM (github.com/Night-Traders-Dev/SageVM)\n");
+    uart_puts("    RV64I bytecode interpreter, pure Sage, no libc.\n\n");
 }
 
 static void process_command(const char *line) {
@@ -270,6 +287,8 @@ static void process_command(const char *line) {
         cmd_version();
     } else if (strncmp(cmd, "mem", cmd_len) == 0 && cmd_len == 3) {
         cmd_mem();
+    } else if (strncmp(cmd, "srvm", cmd_len) == 0 && cmd_len == 4) {
+        cmd_srvm();
     } else if (strncmp(cmd, "clear", cmd_len) == 0 && cmd_len == 5) {
         cmd_clear();
     } else if (strncmp(cmd, "uptime", cmd_len) == 0 && cmd_len == 6) {
@@ -516,7 +535,8 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     }
 
     uart_puts("[5/7] Kernel ready\n");
-    uart_puts("[6/7] Starting shell...\n\n");
+    uart_puts("[6/7] SRVM: requires Sage transpilation (see kmain.sage)\n");
+    uart_puts("[7/7] Starting shell...\n\n");
 
     shell_main();
 
