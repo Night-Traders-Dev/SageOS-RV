@@ -445,9 +445,16 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         uart_put_hex(hw.mem_size / 1024);
         uart_puts(" KB @ ");
         uart_put_hex(hw.mem_base);
-        uart_puts(", ");
+        uart_puts(", timer ");
         uart_put_dec(hw.timer_freq / 1000000);
         uart_puts(" MHz\n");
+        uart_puts("       UART @ ");
+        uart_put_hex(hw.uart_base);
+        uart_puts(", PLIC @ ");
+        uart_put_hex(hw.plic_base);
+        uart_puts(", CPUs ");
+        uart_put_dec(hw.cpu_count);
+        uart_puts("\n");
     } else {
         uart_puts("  DTB: fallback defaults\n");
     }

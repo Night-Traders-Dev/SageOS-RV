@@ -32,14 +32,30 @@ int dtb_verify(uint64_t dtb_addr) {
     return 0;
 }
 
+static int compatible_is(const uint8_t *val, uint32_t len, const char *match) {
+    /* Match first null-terminated string in the compatible property */
+    const char *s = (const char *)val;
+    uint32_t pos = 0;
+    while (pos < len) {
+        const char *start = &s[pos];
+        const char *m = match;
+        while (*m && (uint8_t)*m == (uint8_t)*start) { m++; start++; }
+        if (*m == '\0' && (*start == '\0' || *start == ','))
+            return 1;
+        while (pos < len && s[pos]) pos++;
+        pos++; /* skip null */
+    }
+    return 0;
+}
+
 int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
     const uint8_t *base = (const uint8_t *)(uint64_t)dtb_addr;
     const uint32_t *hdr = (const uint32_t *)base;
 
     info->mem_base   = 0;
     info->mem_size   = 0;
-    info->uart_base  = 0x10000000;
-    info->plic_base  = 0x0C000000;
+    info->uart_base  = 0;
+    info->plic_base  = 0;
     info->timer_freq = 0;
     info->cpu_count  = 0;
     info->valid      = 0;
@@ -58,6 +74,8 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
     const uint8_t *end     = base + totalsize;
 
     int depth = 0, in_memory = 0, in_cpus = 0;
+    int cur_is_uart = 0, cur_is_plic = 0;
+    int addr_cells = 2, size_cells = 1;
 
     while ((const uint8_t *)sp < end) {
         uint32_t token = be32(sp++);
@@ -69,9 +87,14 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
             while (name[nlen]) nlen++;
             sp += align4(nlen + 1) / 4;
 
+            cur_is_uart = 0;
+            cur_is_plic = 0;
+
             if (depth == 1) {
-                if (node_name_is(name, "memory")) in_memory = 1;
-                else if (node_name_is(name, "cpus")) in_cpus = 1;
+                if (node_name_is(name, "memory"))
+                    in_memory = 1;
+                else if (node_name_is(name, "cpus"))
+                    in_cpus = 1;
             }
             depth++;
             break;
@@ -80,6 +103,8 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
         case FDT_END_NODE:
             depth--;
             if (depth == 1) { in_memory = 0; in_cpus = 0; }
+            cur_is_uart = 0;
+            cur_is_plic = 0;
             break;
 
         case FDT_PROP: {
@@ -88,24 +113,52 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
             const uint8_t *val = (const uint8_t *)sp;
             sp += align4(len) / 4;
 
-            if (in_memory && prop_name_is(strblock, nameoff, "reg")) {
-                if (len >= 16) {
-                    uint64_t hi_a = be32((const uint32_t *)val);
-                    uint64_t lo_a = be32((const uint32_t *)val + 1);
-                    uint64_t hi_s = be32((const uint32_t *)val + 2);
-                    uint64_t lo_s = be32((const uint32_t *)val + 3);
-                    info->mem_base = (hi_a << 32) | lo_a;
-                    info->mem_size = (hi_s << 32) | lo_s;
-                } else if (len >= 8) {
-                    info->mem_base = be32((const uint32_t *)val);
-                    info->mem_size = be32((const uint32_t *)val + 1);
+            if (prop_name_is(strblock, nameoff, "compatible")) {
+                cur_is_uart = compatible_is(val, len, "ns16550a") ||
+                              compatible_is(val, len, "ns16550");
+                cur_is_plic = compatible_is(val, len, "riscv,plic0");
+            }
+
+            if (prop_name_is(strblock, nameoff, "reg") && len >= 8) {
+                int ac = (depth == 1) ? addr_cells : 2;
+                int sc = (depth == 1) ? size_cells : 1;
+                const uint32_t *rp = (const uint32_t *)val;
+                uint64_t addr = 0, size = 0;
+                if (ac >= 2) {
+                    addr = (uint64_t)be32(rp) << 32 | be32(rp + 1);
+                    rp += 2;
+                } else {
+                    addr = be32(rp);
+                    rp += 1;
+                }
+                if (sc >= 2) {
+                    size = (uint64_t)be32(rp) << 32 | be32(rp + 1);
+                } else {
+                    size = be32(rp);
+                }
+
+                if (cur_is_uart && info->uart_base == 0)
+                    info->uart_base = addr;
+                if (cur_is_plic && info->plic_base == 0)
+                    info->plic_base = addr;
+                if (in_memory) {
+                    info->mem_base = addr;
+                    info->mem_size = size;
                 }
             }
 
-            if (in_cpus && prop_name_is(strblock, nameoff, "timebase-frequency")) {
-                if (len >= 4)
-                    info->timer_freq = be32((const uint32_t *)val);
+            if (depth == 1) {
+                if (prop_name_is(strblock, nameoff, "#address-cells") && len >= 4)
+                    addr_cells = be32((const uint32_t *)val);
+                if (prop_name_is(strblock, nameoff, "#size-cells") && len >= 4)
+                    size_cells = be32((const uint32_t *)val);
             }
+
+            if (in_cpus && prop_name_is(strblock, nameoff, "timebase-frequency") && len >= 4)
+                info->timer_freq = be32((const uint32_t *)val);
+
+            if (in_cpus && prop_name_is(strblock, nameoff, "riscv,isa"))
+                info->cpu_count++;
 
             break;
         }
@@ -125,6 +178,10 @@ done:
     }
     if (info->timer_freq == 0)
         info->timer_freq = 10000000;
+    if (info->uart_base == 0)
+        info->uart_base = 0x10000000;
+    if (info->plic_base == 0)
+        info->plic_base = 0x0C000000;
 
     info->valid = 1;
     return 0;
