@@ -39,10 +39,9 @@ SECTIONS {
         . = ALIGN(4096);
         _heap_start = .;
         _image_end  = .;
+        _heap_end   = 0x87E00000;
+        _stack_top  = 0x87E00000;
     } > RAM
-
-    _heap_end  = 0x87E00000;
-    _stack_top = 0x87E00000;
 
     /DISCARD/ {
         *(.note*)
