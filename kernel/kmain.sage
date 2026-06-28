@@ -1,4 +1,4 @@
-## kernel/kmain.sage — SageOS-RV Kernel Entry Point
+## kernel/kmain.sage - SageOS-RV Kernel Entry Point
 ##
 ## Called from boot.S after stack setup and BSS zeroing.
 ## This is the first Sage code to execute in S-mode.
@@ -40,6 +40,26 @@ let UART_LSR_DR = 0x01
 ## .sgvm binary magic: first 4 bytes of every file compiled by
 ## `sagevm compile --riscv` are 0x53 0x47 0x4D 0x56 ('SGMV')
 let SGVM_MAGIC = 0x56474D53
+
+## ---------------------------------------------------------------------------
+## .sgvm_shell section location
+## ---------------------------------------------------------------------------
+## When the C/linker path is used (fallback_kernel.c + sagemake objcopy)
+## the real linker symbols _shell_sgvm_start / _shell_sgvm_end mark this
+## region.  In the SageVM bytecode path we reference them as plain
+## address constants instead -- sagevm does not support the `extern` keyword.
+##
+## SGVM_SECTION_BASE: physical address where sagemake embeds shell.sgvm.
+##   Placed immediately after the kernel image in the .sgvm_shell section
+##   defined in boot/arch/rv64/linker.ld.  0x80300000 is a safe default
+##   for the QEMU virt board with a ~512 KB kernel window.
+##
+## SGVM_SECTION_SIZE: set to 0 here; the build system patches this value
+##   via `sagemake build` if a shell.sgvm was compiled and embedded.
+##   A value of 0 means no blob is present and the built-in shell is used.
+
+let SGVM_SECTION_BASE = 0x80300000
+let SGVM_SECTION_SIZE = 0
 
 ## --- Console ---
 
@@ -270,38 +290,29 @@ proc srvm_exec(bytecode):
 ## ---------------------------------------------------------------------------
 ## Strategy:
 ##   1. Check SRVM is alive.
-##   2. Read the embedded .sgvm blob via linker boundary symbols.
-##   3. Validate the 4-byte magic ('SGMV', little-endian 0x56474D53).
-##   4. Hand the bytecode to srvm_instance.run().
-##   5. On ANY failure at steps 1-4: print a one-line diagnostic and
+##   2. Check SGVM_SECTION_SIZE > 0 (patched by sagemake when shell.sgvm
+##      was embedded; 0 means no blob present).
+##   3. Read the blob via mem_read_bytes(SGVM_SECTION_BASE, SGVM_SECTION_SIZE).
+##   4. Validate the 4-byte magic ('SGMV', little-endian 0x56474D53).
+##   5. Hand the bytecode list to srvm_instance.run().
+##   6. On ANY failure at steps 1-5: print a one-line diagnostic and
 ##      fall through to the built-in shell_main().
-##
-## The extern symbols are injected by the linker.ld .sgvm_shell section
-## and populated by the objcopy step in sagemake (embed_shell_sgvm).
-## If shell.sgvm was not present at build time the section is empty
-## (_shell_sgvm_start == _shell_sgvm_end) and we fall back silently.
-
-extern _shell_sgvm_start : ptr
-extern _shell_sgvm_end   : ptr
 
 proc shell_launch():
-    ## --- Guard 1: SRVM must be ready ---
+    ## Guard 1: SRVM must be ready
     if srvm_instance == nil:
         console_puts("[shell] SRVM unavailable - using built-in shell\n")
         shell_main()
         return
 
-    ## --- Guard 2: embedded blob must be non-empty ---
-    let sgvm_size = _shell_sgvm_end - _shell_sgvm_start
-    if sgvm_size == 0:
+    ## Guard 2: embedded blob must be non-empty
+    if SGVM_SECTION_SIZE == 0:
         console_puts("[shell] shell.sgvm not embedded - using built-in shell\n")
         shell_main()
         return
 
-    ## --- Guard 3: validate .sgvm magic header ---
-    ## Read the first 4 bytes as a little-endian u32.
-    ## mem_read(addr, 4) returns the 32-bit value at addr.
-    let magic = mem_read(_shell_sgvm_start, 4)
+    ## Guard 3: validate .sgvm magic header
+    let magic = mem_read(SGVM_SECTION_BASE, 4)
     if magic != SGVM_MAGIC:
         console_puts("[shell] shell.sgvm magic mismatch (got ")
         console_put_hex(magic)
@@ -309,17 +320,13 @@ proc shell_launch():
         shell_main()
         return
 
-    ## --- Attempt: run shell.sgvm through SRVM ---
+    ## Attempt: run shell.sgvm through SRVM
     console_puts("[shell] Loading shell.sgvm (")
-    console_put_dec(sgvm_size)
+    console_put_dec(SGVM_SECTION_SIZE)
     console_puts(" bytes) via SRVM...\n")
 
-    ## Build a bytecode list from the raw memory region.
-    ## SRVM.run() accepts a list of byte integers.
-    let bytecode = mem_read_bytes(_shell_sgvm_start, sgvm_size)
+    let bytecode = mem_read_bytes(SGVM_SECTION_BASE, SGVM_SECTION_SIZE)
 
-    ## Wrap in a try/except so a misbehaving bytecode blob cannot
-    ## crash the kernel - we catch and fall back instead.
     let run_ok = false
     try:
         srvm_instance.run(bytecode)
@@ -327,14 +334,12 @@ proc shell_launch():
     except:
         console_puts("[shell] SRVM shell exited with error\n")
 
-    ## If SRVM shell exited cleanly (run_ok) we're done.
-    ## If it threw, drop into the built-in shell.
     if not run_ok:
         console_puts("[shell] Falling back to built-in shell\n")
         shell_main()
 
 ## mem_read_bytes: read `count` bytes from bare-metal address `addr`
-## and return them as a list of integers - the format SRVM.run() expects.
+## and return them as a list of integers for SRVM.run().
 proc mem_read_bytes(addr, count):
     let result = []
     let i = 0
@@ -346,8 +351,6 @@ proc mem_read_bytes(addr, count):
 ## ---------------------------------------------------------------------------
 ## Built-in shell (fallback)
 ## ---------------------------------------------------------------------------
-## Identical feature set to shell.sage but compiled statically into the
-## kernel.  Used whenever shell.sgvm cannot be loaded.
 
 let shell_running = true
 
@@ -403,10 +406,9 @@ proc shell_srvm():
     console_puts("  max_call_depth: ")
     console_put_dec(srvm_instance.state.max_call_depth)
     console_puts("\n")
-    let sgvm_size = _shell_sgvm_end - _shell_sgvm_start
     console_puts("  shell.sgvm: ")
-    if sgvm_size > 0:
-        console_put_dec(sgvm_size)
+    if SGVM_SECTION_SIZE > 0:
+        console_put_dec(SGVM_SECTION_SIZE)
         console_puts(" bytes embedded\n\n")
     else:
         console_puts("not embedded (fallback shell active)\n\n")
