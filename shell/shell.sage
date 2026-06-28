@@ -105,16 +105,16 @@ proc parse_command(line):
 
 proc trim(s):
     let start = 0
-    let end = len(s) - 1
+    let end_trim = len(s) - 1
     while start < len(s) and s[start] == " ":
         start = start + 1
-    while end >= 0 and s[end] == " ":
-        end = end - 1
-    if start > end:
+    while end_trim >= 0 and s[end_trim] == " ":
+        end_trim = end_trim - 1
+    if start > end_trim:
         return ""
     let result = ""
     let i = start
-    while i <= end:
+    while i <= end_trim:
         result = result + s[i]
         i = i + 1
     return result
