@@ -89,11 +89,6 @@ sagevm_check() { command -v "$SAGEVM" >/dev/null 2>&1 || [ -x "$SAGEVM" ]; }
 
 ## ---------------------------------------------------------------------------
 ## MetalVM source helpers
-##
-## MetalVM is header-only.  After setup-metalvm the headers are in kernel/.
-## We compile via thin *_impl.c wrappers (also in kernel/) that do:
-##   #define METAL_VM_IMPLEMENTATION
-##   #include "metal_vm.h"
 ## ---------------------------------------------------------------------------
 metal_src_c()  { echo "${SCRIPT_DIR}/kernel/metal_vm_impl.c"; }
 metal_src_rv() { echo "${SCRIPT_DIR}/kernel/metal_rv64_vm_impl.c"; }
@@ -173,38 +168,49 @@ compile_shell_sgvm() {
 }
 
 ## ---------------------------------------------------------------------------
-## embed_kernel_sgvm  -- stdout: path to .o
-## ---------------------------------------------------------------------------
+## embed_kernel_sgvm
+##
+## objcopy MUST be called with a RELATIVE path so the mangled symbol name
+## matches what fallback_kernel.c declares:
+##   _binary_kernel_kmain_sgvm_start / _end
+##
+## We cd to SCRIPT_DIR first, then pass "kernel/kmain.sgvm".
+## --------------------------------------------------------------------------- 
 embed_kernel_sgvm() {
-    local src="${SCRIPT_DIR}/kernel/kmain.sgvm"
+    local src="kernel/kmain.sgvm"
     local obj="${BUILD_DIR}/kernel_sgvm.o"
-    [ -f "${src}" ] || fail "embed_kernel_sgvm: ${src} missing"
-    local bsz; bsz=$(wc -c < "${src}")
+    [ -f "${SCRIPT_DIR}/${src}" ] || fail "embed_kernel_sgvm: ${SCRIPT_DIR}/${src} missing"
+    local bsz; bsz=$(wc -c < "${SCRIPT_DIR}/${src}")
     info "Embedding kernel/kmain.sgvm (${bsz} bytes) -> .sgvm_kernel section" >&2
-    $OBJCOPY \
+    ( cd "${SCRIPT_DIR}" && \
+      $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
         --rename-section .data=.sgvm_kernel \
         --set-section-flags .sgvm_kernel=alloc,load,readonly \
-        "${src}" "${obj}" \
+        "${src}" "${obj}" ) \
         && ok "kernel_sgvm.o embedded" \
         || fail "objcopy embed failed for kmain.sgvm"
     echo "${obj}"
 }
 
 ## ---------------------------------------------------------------------------
-## embed_shell_sgvm  -- stdout: path to .o
+## embed_shell_sgvm
+##
+## Same fix: cd to SCRIPT_DIR, pass "shell/shell.sgvm".
+## Symbol: _binary_shell_shell_sgvm_start / _end
 ## ---------------------------------------------------------------------------
 embed_shell_sgvm() {
-    local src="${SCRIPT_DIR}/shell/shell.sgvm"
+    local src="shell/shell.sgvm"
     local obj="${BUILD_DIR}/shell_sgvm.o"
-    [ -f "${src}" ] || fail "embed_shell_sgvm: ${src} missing"
-    local bsz; bsz=$(wc -c < "${src}")
+    [ -f "${SCRIPT_DIR}/${src}" ] || fail "embed_shell_sgvm: ${SCRIPT_DIR}/${src} missing"
+    local bsz; bsz=$(wc -c < "${SCRIPT_DIR}/${src}")
     info "Embedding shell/shell.sgvm (${bsz} bytes) -> .sgvm_shell section" >&2
-    $OBJCOPY \
+    ( cd "${SCRIPT_DIR}" && \
+      $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
         --rename-section .data=.sgvm_shell \
         --set-section-flags .sgvm_shell=alloc,load,readonly \
-        "${src}" "${obj}" \
+        "${src}" "${obj}" ) \
         && ok "shell_sgvm.o embedded" \
         || fail "objcopy embed failed for shell.sgvm"
     echo "${obj}"
@@ -249,10 +255,6 @@ cmd_run_shell() {
 
 ## ---------------------------------------------------------------------------
 ## setup-metalvm
-##
-## MetalVM is header-only.  We copy the two headers from
-## SageLang/core/include/ into kernel/ so the build is self-contained.
-## The *_impl.c wrappers (already in kernel/) are what sagemake compiles.
 ## ---------------------------------------------------------------------------
 cmd_setup_metalvm() {
     local inc="${SAGELANG_CORE}/include"
@@ -267,7 +269,6 @@ cmd_setup_metalvm() {
     cp "${rv_h}" "${SCRIPT_DIR}/kernel/metal_rv64_vm.h"
     ok "kernel/metal_rv64_vm.h"
 
-    ## Confirm impl wrappers are present (they're committed to the repo)
     [ -f "${SCRIPT_DIR}/kernel/metal_vm_impl.c" ] \
         && ok "kernel/metal_vm_impl.c (already present)" \
         || warn "kernel/metal_vm_impl.c missing -- git pull may be needed"
@@ -286,7 +287,6 @@ cmd_build() {
     printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH" >&2
     mkdir -p "$BUILD_DIR" "$IMAGE_DIR"
 
-    ## Guard: MetalVM headers must be in kernel/ before we start
     if ! metal_headers_present; then
         fail "MetalVM headers not found in kernel/.\n  Run: ./sagemake setup-metalvm"
     fi
@@ -296,6 +296,7 @@ cmd_build() {
     ## 1. Boot assembly
     info "Compiling RISC-V boot assembly..."
     $CC $BM_CFLAGS \
+        -I"${SCRIPT_DIR}/boot/arch/rv64" \
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly failed"
 
@@ -303,7 +304,7 @@ cmd_build() {
     compile_kernel_sgvm
     compile_shell_sgvm
 
-    ## 3. Embed blobs
+    ## 3. Embed blobs (cd-relative so symbol names are predictable)
     local kernel_sgvm_obj shell_sgvm_obj
     kernel_sgvm_obj=$(embed_kernel_sgvm)
     shell_sgvm_obj=$(embed_shell_sgvm)
@@ -311,7 +312,7 @@ cmd_build() {
     ## 4. RTOS
     compile_rtos
 
-    ## 5. MetalVM implementation TUs (header-only, compiled via *_impl.c wrappers)
+    ## 5. MetalVM
     local metal_c;  metal_c=$(metal_src_c)
     local metal_rv; metal_rv=$(metal_src_rv)
 
