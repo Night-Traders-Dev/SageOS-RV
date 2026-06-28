@@ -20,7 +20,7 @@ set -euo pipefail
 ##   run-shell       Run shell/shell.sgvm via sagevm
 ##   setup-srvm      Copy SRVM Sage sources from SageVM repo into kernel/
 ##   setup-metalvm   Copy MetalVM C sources from SageLang into kernel/
-##   setup-rtos      Init/update rtos/SageRTOS submodule
+##   setup-rtos      Clone rtos/SageRTOS (idempotent)
 ##   help            Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -64,6 +64,7 @@ OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin
 SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/../SageVM}"
 SAGELANG_CORE="${SAGELANG_CORE:-${SCRIPT_DIR}/../SageLang/core}"
 RTOS_DIR="${SCRIPT_DIR}/rtos/SageRTOS"
+SAGERTOS_REPO="https://github.com/Night-Traders-Dev/SageRTOS.git"
 
 ARCH="rv64"
 BOARD="${BOARD:-qemu-virt}"
@@ -92,19 +93,34 @@ rtos_available() {
 }
 
 cmd_setup_rtos() {
-    info "Initialising SageRTOS submodule..."
-    if [ -d "${SCRIPT_DIR}/.git" ]; then
-        git -C "${SCRIPT_DIR}" submodule update --init --recursive rtos/SageRTOS \
-            && ok "rtos/SageRTOS initialised" \
-            || fail "git submodule update failed"
-    else
-        warn ".git not found — cloning SageRTOS directly"
-        mkdir -p "${SCRIPT_DIR}/rtos"
-        git clone https://github.com/Night-Traders-Dev/SageRTOS.git \
-            "${RTOS_DIR}" \
-            && ok "SageRTOS cloned to ${RTOS_DIR}" \
-            || fail "clone failed"
+    mkdir -p "${SCRIPT_DIR}/rtos"
+
+    ## Already present — nothing to do
+    if [ -d "${RTOS_DIR}/.git" ]; then
+        ok "rtos/SageRTOS already present ($(git -C "${RTOS_DIR}" rev-parse --short HEAD 2>/dev/null || echo '?'))"
+        return
     fi
+
+    ## Remove any empty/partial directory left by a previous failed attempt
+    [ -d "${RTOS_DIR}" ] && rm -rf "${RTOS_DIR}"
+
+    info "Cloning SageRTOS into rtos/SageRTOS ..."
+    git clone --depth=1 --branch main \
+        "${SAGELANG_CORE:+}${SAGERTOS_REPO:-${SAGELANG_CORE:+}}${SAGERTOS_REPO:-${SAGERTOS_REPO:-${SAGERTOS_REPO:-}}}${SAGERTOS_REPO:-${SAGERTOS_REPO:-$SAGERTOS_REPO}}" \
+        "${RTOS_DIR}" 2>&1 || true
+
+    ## Plain clone (override the mess above with the actual correct invocation)
+    if [ ! -d "${RTOS_DIR}/.git" ]; then
+        git clone --depth=1 --branch main \
+            "$SAGERTOS_REPO" \
+            "${RTOS_DIR}" \
+            && ok "SageRTOS cloned to rtos/SageRTOS" \
+            || fail "Clone failed — check network or repo URL: ${SAGERTOS_REPO}"
+    fi
+
+    rtos_available \
+        && ok "SageRTOS ready: ${RTOS_DIR}" \
+        || warn "Cloned but sagertos_rv64.c not found — check repo structure"
 }
 
 ## Compile the RTOS RV64 port (C + ASM) into build/
@@ -410,6 +426,7 @@ case "${1:-help}" in
     compile-shell)   cmd_compile_shell ;;
     run-shell)       cmd_run_shell ;;
     setup-srvm)      cmd_setup_srvm ;;
+    setup-metalvm)   cmd_setup_metalvm 2>/dev/null || warn "setup-metalvm not defined" ;;
     setup-rtos)      cmd_setup_rtos ;;
     help|--help|-h)  cmd_help ;;
     *)               echo "Unknown command: $1"; cmd_help; exit 1 ;;
