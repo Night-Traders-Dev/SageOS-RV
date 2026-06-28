@@ -5,19 +5,24 @@ set -euo pipefail
 ## Usage: ./sagemake <command> [options]
 ##
 ## Commands:
-##   build       Compile boot, kernel, and produce OS image
-##   clean       Remove all build artifacts
-##   qemu        Run OS in QEMU emulator
-##   build-run   Build then run in QEMU
-##   image       Generate disk image
-##   flash       Flash image to SD card (requires device path)
-##   test        Run test suite
-##   bench       Run benchmarks
-##   version     Show version info
-##   help        Show this help
+##   build          Compile boot, kernel, and produce OS image
+##   setup-metalvm  Copy MetalVM sources from SageLang into kernel/
+##   clean          Remove all build artifacts
+##   qemu           Run OS in QEMU emulator
+##   build-run      Build then run in QEMU
+##   image          Generate disk image
+##   flash          Flash image to SD card (requires device path)
+##   test           Run test suite
+##   bench          Run benchmarks
+##   version        Show version info
+##   help           Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/config/build.conf"
+
+## ---------------------------------------------------------------------------
+## Toolchain
+## ---------------------------------------------------------------------------
 
 ## Try multiple locations for SageLang compiler
 SAGE="${SAGE:-}"
@@ -40,6 +45,25 @@ OBJCOPY="${RISCV_OBJCOPY:-riscv64-linux-gnu-objcopy}"
 QEMU="${QEMU_BIN:-qemu-system-riscv64}"
 OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin}"
 
+## ---------------------------------------------------------------------------
+## SageLang MetalVM source location
+## Set SAGELANG_CORE to the SageLang core/ directory if the repo is not
+## a sibling of SageOS-RV.  When available, the upstream headers and C
+## sources are used directly so you don't need to run setup-metalvm.
+## ---------------------------------------------------------------------------
+SAGELANG_CORE="${SAGELANG_CORE:-${SCRIPT_DIR}/../SageLang/core}"
+METAL_VM_SRC="${SAGELANG_CORE}/src/c/metal_vm.c"
+METAL_RV64_VM_SRC="${SAGELANG_CORE}/src/c/metal_rv64_vm.c"
+METAL_VM_H="${SAGELANG_CORE}/include/metal_vm.h"
+METAL_RV64_VM_H="${SAGELANG_CORE}/include/metal_rv64_vm.h"
+
+## CFLAGS shared by all bare-metal kernel objects
+## -ffreestanding  : no libc entry-point assumptions
+## -nostdlib       : omit standard library
+## -DSAGE_BARE_METAL / -DSAGE_METAL_VM : enable MetalVM bare-metal code paths
+BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
+BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM"
+
 ARCH="rv64"
 BOARD="${BOARD:-qemu-virt}"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -59,9 +83,52 @@ ok()    { printf "${GREEN}  [OK]${RESET}   %s\n" "$1"; }
 warn()  { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
 fail()  { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
 
+## ---------------------------------------------------------------------------
+## Resolve MetalVM header paths for -I / -D flags
+## ---------------------------------------------------------------------------
+resolve_metal_flags() {
+    METAL_INC_FLAGS="-I${SCRIPT_DIR}/kernel"
+    METAL_DEF_FLAGS=""
+
+    if [ -f "$METAL_VM_H" ]; then
+        ## Use upstream headers directly (quoted for -D macro string value)
+        METAL_DEF_FLAGS+="-DMETAL_VM_HEADER_PATH=\\\"${METAL_VM_H}\\\" "
+        METAL_DEF_FLAGS+="-DMETAL_RV64_VM_HEADER_PATH=\\\"${METAL_RV64_VM_H}\\\" "
+        ## Also add the include dir so that files metal_vm.c includes resolve
+        METAL_INC_FLAGS+="  -I${SAGELANG_CORE}/include"
+    else
+        ## Upstream not found — require bundled copies produced by setup-metalvm
+        if [ ! -f "${SCRIPT_DIR}/kernel/metal_vm_bundled.h" ]; then
+            warn "MetalVM headers not found. Run './sagemake setup-metalvm' first."
+        fi
+    fi
+}
+
+## ---------------------------------------------------------------------------
+## Determine MetalVM C source to compile
+## ---------------------------------------------------------------------------
+resolve_metal_sources() {
+    if [ -f "$METAL_VM_SRC" ]; then
+        METAL_VM_C="$METAL_VM_SRC"
+        METAL_RV64_VM_C="$METAL_RV64_VM_SRC"
+    else
+        ## Fall back to bundled copies
+        METAL_VM_C="${SCRIPT_DIR}/kernel/metal_vm_bundled.c"
+        METAL_RV64_VM_C="${SCRIPT_DIR}/kernel/metal_rv64_vm_bundled.c"
+        if [ ! -f "$METAL_VM_C" ]; then
+            warn "MetalVM C sources not found. Run './sagemake setup-metalvm' first."
+            METAL_VM_C=""
+            METAL_RV64_VM_C=""
+        fi
+    fi
+}
+
 cmd_build() {
     printf "\n${BOLD}  SageOS-RV Build${RESET}\n"
     printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH"
+
+    resolve_metal_flags
+    resolve_metal_sources
 
     mkdir -p "$BUILD_DIR" "$IMAGE_DIR"
 
@@ -73,7 +140,7 @@ cmd_build() {
 
     ## Step 2: Compile RISC-V boot assembly
     info "Compiling RISC-V boot assembly..."
-    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding \
+    $CC $BM_CFLAGS \
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly compilation failed"
 
@@ -85,58 +152,134 @@ cmd_build() {
     fi
 
     info "Compiling kernel C to object..."
-    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+    $CC $BM_CFLAGS $BM_DEFS \
         -I"${SCRIPT_DIR}/kernel" \
+        ${METAL_INC_FLAGS} \
+        ${METAL_DEF_FLAGS} \
         -DCONFIG_BOARD=\"${BOARD}\" \
         -c "${BUILD_DIR}/kernel.c" \
         -o "${BUILD_DIR}/kernel.o" 2>&1 || warn "Kernel C compilation had issues"
 
     info "Compiling DTB parser..."
-    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+    $CC $BM_CFLAGS \
         -I"${SCRIPT_DIR}/kernel" \
         -c "${SCRIPT_DIR}/kernel/dtb.c" \
         -o "${BUILD_DIR}/dtb.o" 2>&1 || fail "DTB compilation failed"
 
     info "Compiling VMM..."
-    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+    $CC $BM_CFLAGS \
         -I"${SCRIPT_DIR}/kernel" \
         -c "${SCRIPT_DIR}/kernel/vmm.c" \
         -o "${BUILD_DIR}/vmm.o" 2>&1 || fail "VMM compilation failed"
 
-    ## Step 4: Compile drivers
+    ## Step 4: Compile MetalVM (bare-metal, libc-free)
+    info "Compiling SageLang MetalVM (freestanding, -DSAGE_BARE_METAL)..."
+
+    local metal_objs=()
+
+    if [ -n "${METAL_VM_C:-}" ] && [ -f "$METAL_VM_C" ]; then
+        $CC $BM_CFLAGS $BM_DEFS \
+            -I"${SCRIPT_DIR}/kernel" \
+            ${METAL_INC_FLAGS} \
+            ${METAL_DEF_FLAGS} \
+            -c "$METAL_VM_C" \
+            -o "${BUILD_DIR}/metal_vm.o" 2>&1 \
+            && ok "MetalVM (metal_vm.c)" \
+            || warn "MetalVM compile had issues"
+        metal_objs+=("${BUILD_DIR}/metal_vm.o")
+    else
+        warn "metal_vm.c not available — skipping MetalVM object"
+    fi
+
+    if [ -n "${METAL_RV64_VM_C:-}" ] && [ -f "$METAL_RV64_VM_C" ]; then
+        $CC $BM_CFLAGS $BM_DEFS \
+            -I"${SCRIPT_DIR}/kernel" \
+            ${METAL_INC_FLAGS} \
+            ${METAL_DEF_FLAGS} \
+            -c "$METAL_RV64_VM_C" \
+            -o "${BUILD_DIR}/metal_rv64_vm.o" 2>&1 \
+            && ok "MetalVM RV64 (metal_rv64_vm.c)" \
+            || warn "MetalVM RV64 compile had issues"
+        metal_objs+=("${BUILD_DIR}/metal_rv64_vm.o")
+    else
+        warn "metal_rv64_vm.c not available — skipping MetalVM RV64 object"
+    fi
+
+    ## Step 5: Compile MetalVM kernel glue
+    info "Compiling MetalVM kernel glue..."
+    $CC $BM_CFLAGS $BM_DEFS \
+        -I"${SCRIPT_DIR}/kernel" \
+        ${METAL_INC_FLAGS} \
+        ${METAL_DEF_FLAGS} \
+        -c "${SCRIPT_DIR}/kernel/metal_vm_glue.c" \
+        -o "${BUILD_DIR}/metal_vm_glue.o" 2>&1 \
+        && ok "metal_vm_glue.c" \
+        || warn "metal_vm_glue compile had issues"
+    metal_objs+=("${BUILD_DIR}/metal_vm_glue.o")
+
+    ## Step 6: Compile drivers
     info "Compiling drivers..."
     for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
+        [ -f "$sage_file" ] || continue
         local name=$(basename "$sage_file" .sage)
         if $SAGE --emit-c "$sage_file" -o "${BUILD_DIR}/drv_${name}.c" 2>/dev/null; then
-            $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+            $CC $BM_CFLAGS \
                 -c "${BUILD_DIR}/drv_${name}.c" -o "${BUILD_DIR}/drv_${name}.o" 2>/dev/null \
                 && ok "Driver: $name" || warn "Driver: $name (partial)"
         fi
     done
 
-    ## Step 5: Link
+    ## Step 7: Link
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
     local drv_objs=()
     for f in ${BUILD_DIR}/drv_*.o; do
         [ -f "$f" ] && drv_objs+=("$f")
     done
+
     $LD -T "$link_script" -nostdlib \
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
         "${BUILD_DIR}/dtb.o" \
         "${BUILD_DIR}/vmm.o" \
+        "${metal_objs[@]}" \
         "${drv_objs[@]}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || warn "Link had issues (expected for alpha)"
 
-    ## Step 6: Create binary
+    ## Step 8: Create binary
     if [ -f "${BUILD_DIR}/sageos.elf" ]; then
         $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
         ok "Created sageos.bin"
     fi
 
     printf "\n  ${DIM}Build complete.${RESET}\n\n"
+}
+
+## ---------------------------------------------------------------------------
+## setup-metalvm — copy MetalVM sources from SageLang into the kernel/ dir
+## so SageOS-RV can build standalone without SAGELANG_CORE on PATH.
+## ---------------------------------------------------------------------------
+cmd_setup_metalvm() {
+    printf "\n${BOLD}  MetalVM Setup${RESET}\n"
+    printf "  ${DIM}Source: %s${RESET}\n\n" "$SAGELANG_CORE"
+
+    [ -d "$SAGELANG_CORE" ] || fail "SAGELANG_CORE not found: $SAGELANG_CORE"
+    [ -f "$METAL_VM_SRC" ]  || fail "metal_vm.c not found in $SAGELANG_CORE/src/c/"
+    [ -f "$METAL_RV64_VM_SRC" ] || fail "metal_rv64_vm.c not found"
+    [ -f "$METAL_VM_H" ]    || fail "metal_vm.h not found in $SAGELANG_CORE/include/"
+    [ -f "$METAL_RV64_VM_H" ] || fail "metal_rv64_vm.h not found"
+
+    cp "$METAL_VM_SRC"     "${SCRIPT_DIR}/kernel/metal_vm_bundled.c"
+    cp "$METAL_RV64_VM_SRC" "${SCRIPT_DIR}/kernel/metal_rv64_vm_bundled.c"
+    cp "$METAL_VM_H"       "${SCRIPT_DIR}/kernel/metal_vm_bundled.h"
+    cp "$METAL_RV64_VM_H" "${SCRIPT_DIR}/kernel/metal_rv64_vm_bundled.h"
+
+    ok "Copied metal_vm.c         → kernel/metal_vm_bundled.c"
+    ok "Copied metal_rv64_vm.c    → kernel/metal_rv64_vm_bundled.c"
+    ok "Copied metal_vm.h         → kernel/metal_vm_bundled.h"
+    ok "Copied metal_rv64_vm.h    → kernel/metal_rv64_vm_bundled.h"
+    printf "\n  Run './sagemake build' to compile.\n\n"
 }
 
 cmd_clean() {
@@ -179,7 +322,6 @@ cmd_build_run() {
 cmd_image() {
     info "Generating disk image..."
     mkdir -p "$IMAGE_DIR"
-    ## Create a minimal FAT32 image with the kernel
     if [ -f "${IMAGE_DIR}/sageos.bin" ]; then
         dd if=/dev/zero of="${IMAGE_DIR}/sageos.img" bs=1M count=64 2>/dev/null
         ok "Created 64MB disk image (sageos.img)"
@@ -191,6 +333,7 @@ cmd_image() {
 cmd_test() {
     info "Running test suite..."
     for test_file in "${SCRIPT_DIR}"/tests/*.sage; do
+        [ -f "$test_file" ] || continue
         local name=$(basename "$test_file")
         printf "  ${CYAN}%-30s${RESET}" "$name"
         if $SAGE --runtime ast "$test_file" > /dev/null 2>&1; then
@@ -215,13 +358,14 @@ cmd_help() {
 }
 
 case "${1:-help}" in
-    build)      cmd_build ;;
-    clean)      cmd_clean ;;
-    qemu)       cmd_qemu ;;
-    build-run)  cmd_build_run ;;
-    image)      cmd_image ;;
-    test)       cmd_test ;;
-    version)    cmd_version ;;
-    help|--help|-h) cmd_help ;;
-    *)          echo "Unknown command: $1"; cmd_help; exit 1 ;;
+    build)           cmd_build ;;
+    setup-metalvm)   cmd_setup_metalvm ;;
+    clean)           cmd_clean ;;
+    qemu)            cmd_qemu ;;
+    build-run)       cmd_build_run ;;
+    image)           cmd_image ;;
+    test)            cmd_test ;;
+    version)         cmd_version ;;
+    help|--help|-h)  cmd_help ;;
+    *)               echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
