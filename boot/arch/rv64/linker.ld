@@ -35,17 +35,16 @@ SECTIONS {
         _bss_end = .;
     } > RAM
 
-    .heap_meta : {
-        . = ALIGN(4096);
-        _heap_start = .;
-        _image_end  = .;
-        _heap_end   = 0x87E00000;
-        _stack_top  = 0x87E00000;
-    } > RAM
+    . = ALIGN(4096);
+    _heap_start = .;
+    _image_end  = .;
 
-    /DISCARD/ {
+    /DISCARD/ : {
         *(.note*)
         *(.comment)
         *(.eh_frame*)
     }
 }
+
+_heap_end  = 0x87E00000;
+_stack_top = 0x87E00000;
