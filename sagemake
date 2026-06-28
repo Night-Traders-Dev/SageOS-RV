@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-## sagemake — SageOS-RV build system
+## sagemake - SageOS-RV build system
 ## Usage: ./sagemake <command> [options]
 ##
 ## Commands:
-##   build        Compile boot, kernel, and produce OS image
-##   clean        Remove all build artifacts
-##   qemu         Run OS in QEMU emulator
-##   build-run    Build then run in QEMU
-##   image        Generate disk image
-##   flash        Flash image to SD card (requires device path)
-##   test         Run test suite
-##   bench        Run benchmarks
-##   version      Show version info
-##   setup-srvm   Copy SRVM Sage sources from SageVM repo into kernel/
-##   help         Show this help
+##   build          Compile boot, kernel, and produce OS image
+##   clean          Remove all build artifacts
+##   qemu           Run OS in QEMU emulator
+##   build-run      Build then run in QEMU
+##   image          Generate disk image
+##   flash          Flash image to SD card (requires device path)
+##   test           Run test suite
+##   bench          Run benchmarks
+##   version        Show version info
+##   compile-shell  Compile shell/shell.sage -> shell/shell.sgvm
+##   setup-srvm     Copy SRVM Sage sources from SageVM repo into kernel/
+##   help           Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/config/build.conf"
@@ -35,6 +36,23 @@ if [ -z "$SAGE" ]; then
     done
 fi
 SAGE="${SAGE:-sage}"
+
+## Try multiple locations for SageVM compiler
+SAGEVM="${SAGEVM:-}"
+if [ -z "$SAGEVM" ]; then
+    for candidate in \
+        sagevm \
+        /home/kraken/Devel/SageVM/sagevm \
+        /home/kraken/Devel/SageLang/sagevm \
+        "${SCRIPT_DIR}/../SageVM/sagevm"; do
+        if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+            SAGEVM="$candidate"
+            break
+        fi
+    done
+fi
+SAGEVM="${SAGEVM:-sagevm}"
+
 CC="${RISCV_CC:-riscv64-linux-gnu-gcc}"
 LD="${RISCV_LD:-riscv64-linux-gnu-ld}"
 OBJCOPY="${RISCV_OBJCOPY:-riscv64-linux-gnu-objcopy}"
@@ -64,43 +82,65 @@ warn()  { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
 fail()  { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
 
 ## ---------------------------------------------------------------------------
+## compile_shell_sgvm
+## ---------------------------------------------------------------------------
+## Run: sagevm compile shell/shell.sage shell/shell.sgvm --riscv
+## Skips gracefully if sagevm is not found or compilation fails so the
+## build can still proceed using a previously compiled shell.sgvm.
+## ---------------------------------------------------------------------------
+compile_shell_sgvm() {
+    local shell_src="${SCRIPT_DIR}/shell/shell.sage"
+    local shell_out="${SCRIPT_DIR}/shell/shell.sgvm"
+
+    if [ ! -f "${shell_src}" ]; then
+        warn "shell/shell.sage not found - skipping shell.sgvm compilation"
+        return
+    fi
+
+    if ! command -v "$SAGEVM" >/dev/null 2>&1 && [ ! -x "$SAGEVM" ]; then
+        warn "sagevm not found (SAGEVM=${SAGEVM}) - skipping shell.sgvm compilation"
+        warn "  To compile manually: sagevm compile shell/shell.sage shell/shell.sgvm --riscv"
+        return
+    fi
+
+    info "Compiling shell/shell.sage -> shell/shell.sgvm ..."
+    if "$SAGEVM" compile "${shell_src}" "${shell_out}" --riscv 2>&1; then
+        ok "shell.sgvm ($(wc -c < "${shell_out}") bytes)"
+    else
+        warn "sagevm compile failed - using existing shell.sgvm if present"
+    fi
+}
+
+## ---------------------------------------------------------------------------
 ## embed_shell_sgvm
 ## ---------------------------------------------------------------------------
-## Convert shell/shell.sgvm into a linkable ELF object whose .data section
-## is renamed to .sgvm_shell.  The linker.ld .sgvm_shell section provides
-## _shell_sgvm_start and _shell_sgvm_end boundary symbols so the kernel can
-## locate the blob at runtime.
+## Convert shell/shell.sgvm into a linkable ELF object whose section is
+## renamed to .sgvm_shell.  The linker.ld .sgvm_shell section provides
+## _shell_sgvm_start and _shell_sgvm_end boundary symbols so the kernel
+## can locate the blob at runtime.
 ##
-## If shell.sgvm does not exist the function emits a warning and writes an
-## empty sentinel object instead, so _shell_sgvm_start == _shell_sgvm_end
-## and the kernel's shell_launch() falls back to the built-in shell.
+## If shell.sgvm does not exist the function emits a warning and writes
+## an empty sentinel object so _shell_sgvm_start == _shell_sgvm_end and
+## the kernel's shell_launch() falls back to the built-in shell.
 ## ---------------------------------------------------------------------------
 embed_shell_sgvm() {
     local sgvm_src="${SCRIPT_DIR}/shell/shell.sgvm"
     local sgvm_obj="${BUILD_DIR}/shell_sgvm.o"
 
     if [ ! -f "${sgvm_src}" ]; then
-        warn "shell/shell.sgvm not found — built-in shell fallback will be used"
+        warn "shell/shell.sgvm not found - built-in shell fallback will be used"
         warn "  To embed: sagevm compile shell/shell.sage shell/shell.sgvm --riscv"
-        ## Write an empty object that still satisfies the linker
-        ## A zero-byte .sgvm_shell section makes _start == _end at link time
         printf '\0' | $OBJCOPY \
             -I binary -O elf64-littleriscv \
             --rename-section .data=.sgvm_shell \
             --set-section-flags .sgvm_shell=alloc,load,readonly \
             /dev/stdin "${sgvm_obj}" 2>/dev/null || true
-        echo "${sgvm_obj}"   ## return path even for empty sentinel
+        echo "${sgvm_obj}"
         return
     fi
 
     info "Embedding shell/shell.sgvm ($(wc -c < "${sgvm_src}") bytes)..."
 
-    ## objcopy flags:
-    ##  -I binary          treat input as raw binary blob
-    ##  -O elf64-littleriscv  produce RV64 little-endian ELF
-    ##  -B riscv           set ELF machine type
-    ##  --rename-section   move .data -> .sgvm_shell (matched by linker.ld)
-    ##  --set-section-flags mark as alloc+load+readonly (not executable)
     $OBJCOPY \
         -I binary \
         -O elf64-littleriscv \
@@ -109,7 +149,7 @@ embed_shell_sgvm() {
         --set-section-flags .sgvm_shell=alloc,load,readonly \
         "${sgvm_src}" "${sgvm_obj}" \
         && ok "shell_sgvm.o ($(wc -c < "${sgvm_src}") bytes embedded)" \
-        || { warn "objcopy failed — built-in shell fallback will be used"; }
+        || { warn "objcopy failed - built-in shell fallback will be used"; }
 
     echo "${sgvm_obj}"
 }
@@ -146,6 +186,11 @@ cmd_setup_srvm() {
     info "Run: git add kernel/srvm_core.sage kernel/srvm_vm.sage && git commit -m 'chore: bundle SRVM sources'"
 }
 
+cmd_compile_shell() {
+    mkdir -p "${SCRIPT_DIR}/shell"
+    compile_shell_sgvm
+}
+
 cmd_build() {
     printf "\n${BOLD}  SageOS-RV Build${RESET}\n"
     printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH"
@@ -167,12 +212,14 @@ cmd_build() {
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly compilation failed"
 
-    ## Step 3: Transpile kernel + embed shell.sgvm
-    ## shell.sgvm must be converted to an ELF object BEFORE linking so the
-    ## _shell_sgvm_start/_shell_sgvm_end symbols exist at link time.
+    ## Step 3a: Compile shell.sage -> shell.sgvm (if sagevm available)
+    compile_shell_sgvm
+
+    ## Step 3b: Convert shell.sgvm -> linkable ELF object
     local sgvm_obj
     sgvm_obj=$(embed_shell_sgvm)
 
+    ## Step 3c: Transpile kernel Sage -> C
     info "Compiling kernel from Sage to C..."
     if ! $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" -o "${BUILD_DIR}/kernel.c" 2>/dev/null; then
         warn "Sage kernel emit failed, using fallback"
@@ -209,7 +256,7 @@ cmd_build() {
         fi
     done
 
-    ## Step 5: Link — include sgvm_obj so .sgvm_shell section is present
+    ## Step 5: Link
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
     local drv_objs=()
@@ -217,7 +264,6 @@ cmd_build() {
         [ -f "$f" ] && drv_objs+=("$f")
     done
 
-    ## Only include sgvm_obj if it actually exists
     local extra_objs=()
     [ -f "${sgvm_obj}" ] && extra_objs+=("${sgvm_obj}")
 
@@ -314,6 +360,7 @@ cmd_version() {
     printf "Board: %s\n" "$BOARD"
     printf "Arch: %s\n" "$ARCH"
     $SAGE --version 2>/dev/null || true
+    $SAGEVM --version 2>/dev/null || true
     $QEMU --version 2>/dev/null | head -1 || true
 }
 
@@ -322,14 +369,15 @@ cmd_help() {
 }
 
 case "${1:-help}" in
-    build)       cmd_build ;;
-    clean)       cmd_clean ;;
-    qemu)        cmd_qemu ;;
-    build-run)   cmd_build_run ;;
-    image)       cmd_image ;;
-    test)        cmd_test ;;
-    version)     cmd_version ;;
-    setup-srvm)  cmd_setup_srvm ;;
+    build)         cmd_build ;;
+    clean)         cmd_clean ;;
+    qemu)          cmd_qemu ;;
+    build-run)     cmd_build_run ;;
+    image)         cmd_image ;;
+    test)          cmd_test ;;
+    version)       cmd_version ;;
+    compile-shell) cmd_compile_shell ;;
+    setup-srvm)    cmd_setup_srvm ;;
     help|--help|-h) cmd_help ;;
-    *)           echo "Unknown command: $1"; cmd_help; exit 1 ;;
+    *)             echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
