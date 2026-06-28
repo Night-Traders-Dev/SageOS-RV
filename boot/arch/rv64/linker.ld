@@ -4,18 +4,13 @@
  * Memory map (QEMU virt, OpenSBI loads kernel at 0x80200000):
  *
  *   0x80200000  .text        - kernel code
- *   ...         .rodata      - read-only data (strings, tables)
+ *   ...         .rodata      - read-only data
  *   ...         .sgvm_shell  - embedded shell.sgvm bytecode blob
  *   ...         .data        - initialised read-write data
  *   ...         .bss         - zero-initialised data
- *   ...         _heap_start  - start of physical page allocator arena
- *   0x88000000  _heap_end    - end of usable RAM (128 MB from 0x80000000)
- *
- * The .sgvm_shell section is populated by objcopy in sagemake.
- * _shell_sgvm_start / _shell_sgvm_end are exposed as extern symbols
- * so kernel/kmain.sage can locate the bytecode at runtime.
- * When shell.sgvm was not embedded both symbols point to the same
- * address (_shell_sgvm_start == _shell_sgvm_end, size == 0).
+ *   ...         _heap_start  - PMM arena start (page-aligned)
+ *   0x87E00000  _heap_end    - PMM arena end  (126M - 2M guard)
+ *   0x87E00000  _stack_top   - initial stack top
  */
 
 OUTPUT_ARCH(riscv)
@@ -39,12 +34,11 @@ SECTIONS {
     } > RAM
 
     /*
-     * Embedded shell bytecode
-     *
-     * objcopy (embed_shell_sgvm in sagemake) produces shell_sgvm.o with
-     * the blob in a section named .sgvm_shell.  KEEP() prevents the
-     * linker discarding it as unreferenced.  The boundary symbols are
-     * read by shell_launch() in kmain.sage at runtime.
+     * Embedded shell bytecode blob.
+     * Populated by objcopy in sagemake (embed_shell_sgvm).
+     * KEEP prevents the linker discarding it as unreferenced.
+     * _shell_sgvm_start/_shell_sgvm_end are read by shell_launch()
+     * in kmain.sage at runtime to locate the bytecode.
      */
     .sgvm_shell : {
         _shell_sgvm_start = .;
@@ -67,13 +61,21 @@ SECTIONS {
         _bss_end = .;
     } > RAM
 
-    /* Heap / PMM arena */
-    . = ALIGN(4096);
-    _heap_start = .;
-    _image_end  = .;
+    /*
+     * Heap / PMM arena boundary symbols.
+     * Zero-length section so ld.bfd accepts the assignments cleanly.
+     * _heap_end is the top of usable RAM (0x80200000 + 126M - 2M guard
+     * = 0x87E00000).  _stack_top shares that address; the boot stub
+     * sets sp to _stack_top before calling sage_kernel_main.
+     */
+    .heap_meta : {
+        . = ALIGN(4096);
+        _heap_start = .;
+        _image_end  = .;
+    } > RAM
 
-    _heap_end  = ORIGIN(RAM) + LENGTH(RAM);
-    _stack_top = _heap_end;
+    _heap_end  = 0x87E00000;
+    _stack_top = 0x87E00000;
 
     /DISCARD/ {
         *(.note*)
