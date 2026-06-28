@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "sbi.h"
 #include "dtb.h"
+#include "vmm.h"
 
 /* Forward declarations for freestanding */
 typedef uint64_t size_t;
@@ -161,11 +162,13 @@ static void pmm_init(void) {
         pmm_mark_used(i);
 }
 
-static uint64_t pmm_alloc(void) {
+uint64_t pmm_alloc(void) {
     if (free_pages == 0) return 0;
     for (uint64_t w = 0; w < bitmap_words; w++) {
-        if (bitmap[w] == 0) continue;
-        uint64_t bit = __builtin_ctzll(bitmap[w]);
+        uint64_t word = bitmap[w];
+        if (word == 0) continue;
+        uint64_t bit = 0;
+        while ((word & 1) == 0) { word >>= 1; bit++; }
         uint64_t page_idx = w * 64 + bit;
         if (page_idx < total_pages) {
             pmm_mark_used(page_idx);
@@ -379,19 +382,45 @@ static void timer_poll(void) {
         system_ticks++;
         uint64_t time;
         __asm__ volatile("rdtime %0" : "=r"(time));
-        sbi_set_timer(time + TIMER_FREQ / 2);
+        timer_arm(time + TIMER_FREQ / 2);
     }
 }
 
-/* Start the periodic SBI timer */
+static int use_sstc = 0;
+
+static void timer_arm(uint64_t deadline) {
+    if (use_sstc) {
+        __asm__ volatile("csrw 0x14D, %0" :: "r"(deadline));
+    } else {
+        sbi_set_timer(deadline);
+    }
+}
+
+/* Start the periodic timer — try SSTC stimecmp first, fall back to SBI */
 static void timer_start(void) {
     uint64_t time;
     __asm__ volatile("rdtime %0" : "=r"(time));
-    sbi_set_timer(time + TIMER_FREQ / 2);
+
+    uint64_t probe_val = 0xAAAA5555AAAA5555UL;
+    uint64_t readback = 0;
+    __asm__ volatile("csrw 0x14D, %1\n\t"
+                     "csrr %0, 0x14D"
+                     : "=r"(readback)
+                     : "r"(probe_val)
+                     : "memory");
+    if (readback == probe_val) {
+        use_sstc = 1;
+        timer_arm(time + TIMER_FREQ / 2);
+        uart_puts("stimecmp @ ");
+        uart_put_dec(TIMER_FREQ / 1000000);
+        uart_puts(" MHz, 500ms\n");
+    } else {
+        timer_arm(time + TIMER_FREQ / 2);
+        uart_puts("SBI @ ");
+        uart_put_dec(TIMER_FREQ / 1000000);
+        uart_puts(" MHz, 500ms\n");
+    }
     __asm__ volatile("csrs sie, %0" :: "r"(0x20));
-    uart_puts("SBI @ ");
-    uart_put_dec(TIMER_FREQ / 1000000);
-    uart_puts(" MHz, 500ms\n");
 }
 
 /* Kernel main — called from boot.S */
@@ -406,7 +435,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("  RISC-V 64 | QEMU virt\n");
     uart_puts("========================================\n\n");
 
-    uart_puts("[1/5] Console initialized\n");
+    uart_puts("[1/7] Console initialized\n");
 
     /* Parse device tree to discover hardware */
     int dtb_ok = dtb_parse(dtb_addr, &hw);
@@ -425,7 +454,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     /* Re-init UART in case DTB reported a different base */
     uart_init();
 
-    uart_puts("[2/5] Memory: ");
+    uart_puts("[2/7] Memory: ");
     pmm_init();
     uart_put_dec(total_pages);
     uart_puts(" pages (");
@@ -434,7 +463,26 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_put_dec(bitmap_words);
     uart_puts(" bitmap words\n");
 
-    uart_puts("[3/5] Timer: ");
+    uart_puts("[3/7] VMM: ");
+    int vmm_ok = vmm_init();
+    if (vmm_ok == 0) {
+        /* Identity map kernel code + data */
+        vmm_identity_map(0x80200000UL, 0x81000000UL,
+                         PTE_R | PTE_W | PTE_X | PTE_G);
+        /* Identity map UART MMIO */
+        vmm_identity_map(hw.uart_base, hw.uart_base + 0x1000,
+                         PTE_R | PTE_W | PTE_G);
+        /* Identity map PLIC */
+        if (hw.plic_base)
+            vmm_identity_map(hw.plic_base, hw.plic_base + 0x400000,
+                             PTE_R | PTE_W | PTE_G);
+        vmm_activate();
+        uart_puts("SV39 active\n");
+    } else {
+        uart_puts("failed — continuing without MMU\n");
+    }
+
+    uart_puts("[4/7] Timer: ");
     timer_start();
 
     /* Poll until first timer tick to verify timer works */
@@ -459,8 +507,8 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         }
     }
 
-    uart_puts("[4/5] Kernel ready\n");
-    uart_puts("[5/5] Starting shell...\n\n");
+    uart_puts("[5/7] Kernel ready\n");
+    uart_puts("[6/7] Starting shell...\n\n");
 
     shell_main();
 

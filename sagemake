@@ -19,6 +19,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/config/build.conf"
 
+## Try multiple locations for SageLang compiler
+SAGE="${SAGE:-}"
+if [ -z "$SAGE" ]; then
+    for candidate in \
+        /home/kraken/Devel/SageLang/core/build/sage \
+        /home/kraken/Devel/SageLang/core/sage \
+        sage \
+        sage3; do
+        if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+            SAGE="$candidate"
+            break
+        fi
+    done
+fi
 SAGE="${SAGE:-sage}"
 CC="${RISCV_CC:-riscv64-linux-gnu-gcc}"
 LD="${RISCV_LD:-riscv64-linux-gnu-ld}"
@@ -83,6 +97,12 @@ cmd_build() {
         -c "${SCRIPT_DIR}/kernel/dtb.c" \
         -o "${BUILD_DIR}/dtb.o" 2>&1 || fail "DTB compilation failed"
 
+    info "Compiling VMM..."
+    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+        -I"${SCRIPT_DIR}/kernel" \
+        -c "${SCRIPT_DIR}/kernel/vmm.c" \
+        -o "${BUILD_DIR}/vmm.o" 2>&1 || fail "VMM compilation failed"
+
     ## Step 4: Compile drivers
     info "Compiling drivers..."
     for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
@@ -105,6 +125,7 @@ cmd_build() {
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
         "${BUILD_DIR}/dtb.o" \
+        "${BUILD_DIR}/vmm.o" \
         "${drv_objs[@]}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || warn "Link had issues (expected for alpha)"

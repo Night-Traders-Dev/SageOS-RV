@@ -5,37 +5,40 @@
 OUTPUT_ARCH("riscv")
 ENTRY(_start)
 
-MEMORY
+PHDRS
 {
-    RAM (rwxa) : ORIGIN = 0x80200000, LENGTH = 128M
+    text   PT_LOAD FLAGS(5);   /* R+X */
+    rodata PT_LOAD FLAGS(4);   /* R   */
+    data   PT_LOAD FLAGS(6);   /* R+W */
+    bss    PT_LOAD FLAGS(6);   /* R+W */
 }
 
 SECTIONS
 {
     . = 0x80200000;
 
-    .text : {
+    .text ALIGN(4096) : {
         KEEP(*(.text.boot))
         *(.text .text.*)
-    } > RAM
+    } :text
 
-    .rodata : {
+    .rodata ALIGN(4096) : {
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
-    } > RAM
+    } :rodata
 
-    .data : {
+    .data ALIGN(4096) : {
         *(.data .data.*)
         *(.sdata .sdata.*)
-    } > RAM
+    } :data
 
-    .bss : {
+    .bss ALIGN(4096) : {
         _bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
         *(COMMON)
         _bss_end = .;
-    } > RAM
+    } :bss
 
     . = ALIGN(4096);
     _heap_start = .;
