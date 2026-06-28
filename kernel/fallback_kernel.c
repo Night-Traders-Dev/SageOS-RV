@@ -311,6 +311,17 @@ static size_t strlen(const char *s) {
     return len;
 }
 
+/* Timer helpers */
+static int use_sstc = 0;
+
+static void timer_arm(uint64_t deadline) {
+    if (use_sstc) {
+        __asm__ volatile("csrw 0x14D, %0" :: "r"(deadline));
+    } else {
+        sbi_set_timer(deadline);
+    }
+}
+
 /* Poll for and handle pending timer tick (forward declaration) */
 static void timer_poll(void);
 
@@ -383,16 +394,6 @@ static void timer_poll(void) {
         uint64_t time;
         __asm__ volatile("rdtime %0" : "=r"(time));
         timer_arm(time + TIMER_FREQ / 2);
-    }
-}
-
-static int use_sstc = 0;
-
-static void timer_arm(uint64_t deadline) {
-    if (use_sstc) {
-        __asm__ volatile("csrw 0x14D, %0" :: "r"(deadline));
-    } else {
-        sbi_set_timer(deadline);
     }
 }
 
