@@ -331,8 +331,8 @@ proc shell_launch():
     try:
         srvm_instance.run(bytecode)
         run_ok = true
-    except:
-        console_puts("[shell] SRVM shell exited with error\n")
+    catch e:
+        console_puts("[shell] SRVM shell exited with error: " + e + "\n")
 
     if not run_ok:
         console_puts("[shell] Falling back to built-in shell\n")
@@ -422,11 +422,11 @@ proc shell_about():
     console_puts("    RV64I bytecode interpreter, pure Sage, no libc.\n\n")
 
 proc shell_process(line):
-    if line == "help":    shell_help()    ; return
-    if line == "version": shell_version() ; return
-    if line == "mem":     shell_mem()     ; return
-    if line == "srvm":    shell_srvm()    ; return
-    if line == "about":   shell_about()   ; return
+    if line == "help":    shell_help()
+    if line == "version": shell_version()
+    if line == "mem":     shell_mem()
+    if line == "srvm":    shell_srvm()
+    if line == "about":   shell_about()
     if line == "halt":
         console_puts("System halting...\n")
         shell_running = false
