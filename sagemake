@@ -63,14 +63,63 @@ ok()    { printf "${GREEN}  [OK]${RESET}   %s\n" "$1"; }
 warn()  { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
 fail()  { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
 
-## Ensure SRVM Sage sources are present in kernel/ before transpilation.
-## Copies from SAGEVM_DIR if available, otherwise checks for bundled copies.
+## ---------------------------------------------------------------------------
+## embed_shell_sgvm
+## ---------------------------------------------------------------------------
+## Convert shell/shell.sgvm into a linkable ELF object whose .data section
+## is renamed to .sgvm_shell.  The linker.ld .sgvm_shell section provides
+## _shell_sgvm_start and _shell_sgvm_end boundary symbols so the kernel can
+## locate the blob at runtime.
+##
+## If shell.sgvm does not exist the function emits a warning and writes an
+## empty sentinel object instead, so _shell_sgvm_start == _shell_sgvm_end
+## and the kernel's shell_launch() falls back to the built-in shell.
+## ---------------------------------------------------------------------------
+embed_shell_sgvm() {
+    local sgvm_src="${SCRIPT_DIR}/shell/shell.sgvm"
+    local sgvm_obj="${BUILD_DIR}/shell_sgvm.o"
+
+    if [ ! -f "${sgvm_src}" ]; then
+        warn "shell/shell.sgvm not found — built-in shell fallback will be used"
+        warn "  To embed: sagevm compile shell/shell.sage shell/shell.sgvm --riscv"
+        ## Write an empty object that still satisfies the linker
+        ## A zero-byte .sgvm_shell section makes _start == _end at link time
+        printf '\0' | $OBJCOPY \
+            -I binary -O elf64-littleriscv \
+            --rename-section .data=.sgvm_shell \
+            --set-section-flags .sgvm_shell=alloc,load,readonly \
+            /dev/stdin "${sgvm_obj}" 2>/dev/null || true
+        echo "${sgvm_obj}"   ## return path even for empty sentinel
+        return
+    fi
+
+    info "Embedding shell/shell.sgvm ($(wc -c < "${sgvm_src}") bytes)..."
+
+    ## objcopy flags:
+    ##  -I binary          treat input as raw binary blob
+    ##  -O elf64-littleriscv  produce RV64 little-endian ELF
+    ##  -B riscv           set ELF machine type
+    ##  --rename-section   move .data -> .sgvm_shell (matched by linker.ld)
+    ##  --set-section-flags mark as alloc+load+readonly (not executable)
+    $OBJCOPY \
+        -I binary \
+        -O elf64-littleriscv \
+        -B riscv \
+        --rename-section .data=.sgvm_shell \
+        --set-section-flags .sgvm_shell=alloc,load,readonly \
+        "${sgvm_src}" "${sgvm_obj}" \
+        && ok "shell_sgvm.o ($(wc -c < "${sgvm_src}") bytes embedded)" \
+        || { warn "objcopy failed — built-in shell fallback will be used"; }
+
+    echo "${sgvm_obj}"
+}
+
 cmd_ensure_srvm() {
     local srvm_src="${SAGEVM_DIR}/src/srvm"
     local kernel_dir="${SCRIPT_DIR}/kernel"
 
     if [ -f "${kernel_dir}/srvm_core.sage" ] && [ -f "${kernel_dir}/srvm_vm.sage" ]; then
-        return 0  # already present
+        return 0
     fi
 
     if [ -d "${srvm_src}" ]; then
@@ -84,7 +133,6 @@ cmd_ensure_srvm() {
     fi
 }
 
-## Explicit setup command: copies SRVM sources + commits them as bundled
 cmd_setup_srvm() {
     local srvm_src="${SAGEVM_DIR}/src/srvm"
     if [ ! -d "${srvm_src}" ]; then
@@ -119,9 +167,12 @@ cmd_build() {
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly compilation failed"
 
-    ## Step 3: Compile kernel
-    ## sage --emit-c resolves imports relative to the source file's directory,
-    ## so srvm_core.sage + srvm_vm.sage must live alongside kmain.sage in kernel/
+    ## Step 3: Transpile kernel + embed shell.sgvm
+    ## shell.sgvm must be converted to an ELF object BEFORE linking so the
+    ## _shell_sgvm_start/_shell_sgvm_end symbols exist at link time.
+    local sgvm_obj
+    sgvm_obj=$(embed_shell_sgvm)
+
     info "Compiling kernel from Sage to C..."
     if ! $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" -o "${BUILD_DIR}/kernel.c" 2>/dev/null; then
         warn "Sage kernel emit failed, using fallback"
@@ -158,18 +209,24 @@ cmd_build() {
         fi
     done
 
-    ## Step 5: Link
+    ## Step 5: Link — include sgvm_obj so .sgvm_shell section is present
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
     local drv_objs=()
     for f in ${BUILD_DIR}/drv_*.o; do
         [ -f "$f" ] && drv_objs+=("$f")
     done
+
+    ## Only include sgvm_obj if it actually exists
+    local extra_objs=()
+    [ -f "${sgvm_obj}" ] && extra_objs+=("${sgvm_obj}")
+
     $LD -T "$link_script" -nostdlib \
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
         "${BUILD_DIR}/dtb.o" \
         "${BUILD_DIR}/vmm.o" \
+        "${extra_objs[@]}" \
         "${drv_objs[@]}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || warn "Link had issues (expected for alpha)"
@@ -178,6 +235,13 @@ cmd_build() {
     if [ -f "${BUILD_DIR}/sageos.elf" ]; then
         $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
         ok "Created sageos.bin"
+    fi
+
+    ## Report shell mode
+    if [ -f "${SCRIPT_DIR}/shell/shell.sgvm" ]; then
+        ok "Shell mode: shell.sgvm (SRVM bytecode, $(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm") bytes)"
+    else
+        warn "Shell mode: built-in fallback (shell.sage)"
     fi
 
     printf "\n  ${DIM}Build complete.${RESET}\n\n"
@@ -223,7 +287,6 @@ cmd_build_run() {
 cmd_image() {
     info "Generating disk image..."
     mkdir -p "$IMAGE_DIR"
-    ## Create a minimal FAT32 image with the kernel
     if [ -f "${IMAGE_DIR}/sageos.bin" ]; then
         dd if=/dev/zero of="${IMAGE_DIR}/sageos.img" bs=1M count=64 2>/dev/null
         ok "Created 64MB disk image (sageos.img)"
