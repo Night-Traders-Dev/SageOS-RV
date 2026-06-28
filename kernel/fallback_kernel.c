@@ -7,10 +7,10 @@
  * As SageLang's bare-metal code generation matures, this file
  * will be replaced by transpiled Sage code.
  *
- * NOTE: SRVM (Sage RISC-V VM) is a pure Sage module. It is
- * available via kmain.sage -> sage --emit-c transpilation.
- * This C fallback reports its availability but cannot invoke
- * it directly — there is no C API, by design.
+ * Shell dispatch:
+ *   - If shell.sgvm is embedded (via objcopy into .sgvm_shell)
+ *     the shell is executed by MetalVM (sage_metal_vm_exec).
+ *   - Otherwise the built-in C shell runs as a fallback.
  */
 
 #include <stdint.h>
@@ -18,9 +18,28 @@
 #include "dtb.h"
 #include "vmm.h"
 
+/* MetalVM glue — provided by metal_vm_glue.c.
+ * If SAGE_METAL_VM is not defined the stubs below are used instead. */
+#ifdef SAGE_METAL_VM
+extern void     sage_metal_vm_init(void);
+extern int      sage_metal_vm_exec(const uint8_t *bytecode, uint32_t len);
+#else
+static inline void sage_metal_vm_init(void) {}
+static inline int  sage_metal_vm_exec(const uint8_t *b, uint32_t l)
+    { (void)b; (void)l; return -1; }
+#endif
+
+/* Linker symbols for the embedded shell.sgvm blob.
+ * These are defined by objcopy --rename-section .data=.sgvm_shell.
+ * When shell.sgvm was not available the sentinel object sets
+ * _shell_sgvm_start == _shell_sgvm_end (size 1, single NUL byte). */
+extern const uint8_t _binary_shell_shell_sgvm_start[]  __attribute__((weak));
+extern const uint8_t _binary_shell_shell_sgvm_end[]    __attribute__((weak));
+extern const uint8_t _binary_shell_shell_sgvm_size[]   __attribute__((weak));
+
 /* Forward declarations for freestanding */
 typedef uint64_t size_t;
-static int strncmp(const char *a, const char *b, int n);
+static int   strncmp(const char *a, const char *b, int n);
 static size_t strlen(const char *s);
 
 /* Volatile tick counter updated by timer interrupt */
@@ -30,12 +49,12 @@ static volatile uint64_t system_ticks = 0;
 static dtb_info_t hw;
 
 /* UART registers (16550A) */
-#define UART_THR    0
-#define UART_RBR    0
-#define UART_IER    1
-#define UART_FCR    2
-#define UART_LCR    3
-#define UART_LSR    5
+#define UART_THR      0
+#define UART_RBR      0
+#define UART_IER      1
+#define UART_FCR      2
+#define UART_LCR      3
+#define UART_LSR      5
 #define UART_LSR_THRE 0x20
 #define UART_LSR_DR   0x01
 
@@ -63,7 +82,7 @@ static void uart_init(void) {
     mmio_write(base + UART_LCR, 0x03);  /* 8N1 */
 }
 
-static void uart_putc(char c) {
+void uart_putc(char c) {
     uint64_t base = uart_base();
     while ((mmio_read(base + UART_LSR) & UART_LSR_THRE) == 0)
         ;
@@ -78,7 +97,7 @@ static void uart_puts(const char *s) {
     }
 }
 
-static int uart_getchar(void) {
+int uart_getchar(void) {
     uint64_t base = uart_base();
     if (mmio_read(base + UART_LSR) & UART_LSR_DR)
         return mmio_read(base + UART_RBR);
@@ -116,10 +135,9 @@ static void uart_put_dec(uint64_t val) {
 }
 
 /* Memory manager — bitmap-based, 1 bit per 4K page */
-#define PAGE_SIZE 4096UL
+#define PAGE_SIZE  4096UL
 #define PAGE_SHIFT 12
 
-/* Linker symbols — take their address to get the actual value */
 extern char _heap_start[];
 extern char _heap_end[];
 extern char _stack_top[];
@@ -153,16 +171,13 @@ static void pmm_init(void) {
     free_pages = total_pages;
     bitmap_words = (total_pages + 63) / 64;
 
-    /* Bitmap sits right after the kernel image (at _heap_start) */
     bitmap = (uint64_t *)(uint64_t)_heap_start;
 
-    /* Mark all pages free (1 = free) */
     for (uint64_t i = 0; i < bitmap_words; i++)
         bitmap[i] = ~0ULL;
 
-    /* Reserve kernel image pages (first ~256) and bitmap itself */
-    uint64_t kernel_pages = 256;
-    uint64_t bitmap_pages = (bitmap_words * 8 + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint64_t kernel_pages  = 256;
+    uint64_t bitmap_pages  = (bitmap_words * 8 + PAGE_SIZE - 1) / PAGE_SIZE;
     for (uint64_t i = 0; i < kernel_pages + bitmap_pages; i++)
         pmm_mark_used(i);
 }
@@ -189,7 +204,33 @@ static void pmm_free(uint64_t addr) {
         pmm_mark_free(page_idx);
 }
 
-/* Shell */
+/* ---------------------------------------------------------------------------
+ * shell.sgvm presence helpers
+ * ---------------------------------------------------------------------------
+ * objcopy names the symbols after the file path:
+ *   shell/shell.sgvm -> _binary_shell_shell_sgvm_{start,end,size}
+ * The sentinel empty object has start == end (1-byte NUL gap at most).
+ * We treat blobs smaller than 8 bytes as absent.
+ * --------------------------------------------------------------------------- */
+static const uint8_t *sgvm_shell_data(void) {
+    if (&_binary_shell_shell_sgvm_start == 0 ||
+        &_binary_shell_shell_sgvm_end   == 0)
+        return 0;
+    return _binary_shell_shell_sgvm_start;
+}
+
+static uint32_t sgvm_shell_size(void) {
+    if (&_binary_shell_shell_sgvm_start == 0 ||
+        &_binary_shell_shell_sgvm_end   == 0)
+        return 0;
+    uint64_t sz = (uint64_t)_binary_shell_shell_sgvm_end -
+                  (uint64_t)_binary_shell_shell_sgvm_start;
+    return (sz > 8) ? (uint32_t)sz : 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Built-in C shell (runs when shell.sgvm is absent)
+ * --------------------------------------------------------------------------- */
 static int shell_running = 1;
 
 static void cmd_help(void) {
@@ -197,7 +238,7 @@ static void cmd_help(void) {
     uart_puts("  help       Show this help\n");
     uart_puts("  version    Show kernel version\n");
     uart_puts("  mem        Show memory statistics\n");
-    uart_puts("  srvm       SRVM status (Sage transpilation required)\n");
+    uart_puts("  srvm       VM status\n");
     uart_puts("  clear      Clear screen\n");
     uart_puts("  uptime     Show system uptime\n");
     uart_puts("  reboot     Cold reboot the system\n");
@@ -210,10 +251,18 @@ static void cmd_help(void) {
 static void cmd_version(void) {
     uart_puts("SageOS-RV v0.1.0-alpha\n");
     uart_puts("Kernel: SageOS-RV\n");
-    uart_puts("Arch: RISC-V 64 (rv64imac)\n");
-    uart_puts("SBI: v3.0\n");
-    uart_puts("Build: fallback C kernel (Sage transpilation pending)\n");
-    uart_puts("VM:    SRVM (available after sage --emit-c transpilation)\n\n");
+    uart_puts("Arch:   RISC-V 64 (rv64imac)\n");
+    uart_puts("SBI:    v3.0\n");
+    uart_puts("Build:  fallback C kernel\n");
+    const uint8_t *blob = sgvm_shell_data();
+    uint32_t      bsz   = sgvm_shell_size();
+    if (blob && bsz > 0) {
+        uart_puts("Shell:  shell.sgvm via MetalVM (");
+        uart_put_dec(bsz);
+        uart_puts(" bytes)\n\n");
+    } else {
+        uart_puts("Shell:  built-in C fallback\n\n");
+    }
 }
 
 static void cmd_mem(void) {
@@ -239,15 +288,20 @@ static void cmd_mem(void) {
 }
 
 static void cmd_srvm(void) {
-    uart_puts("SRVM (Sage RISC-V VM):\n");
-    uart_puts("  Source: github.com/Night-Traders-Dev/SageVM src/srvm/\n");
-    uart_puts("  Status: unavailable in C fallback kernel\n");
-    uart_puts("  Reason: SRVM is a pure Sage module (srvm_vm.sage +\n");
-    uart_puts("          srvm_core.sage). It is instantiated from\n");
-    uart_puts("          kmain.sage via 'import srvm_vm' and compiled\n");
-    uart_puts("          by 'sage --emit-c kernel/kmain.sage'.\n");
-    uart_puts("  Action: run './sagemake build' with a working Sage\n");
-    uart_puts("          compiler to get SRVM in the kernel.\n\n");
+    uart_puts("SageOS VM status:\n");
+    const uint8_t *blob = sgvm_shell_data();
+    uint32_t      bsz   = sgvm_shell_size();
+    if (blob && bsz > 0) {
+        uart_puts("  shell.sgvm : embedded, ");
+        uart_put_dec(bsz);
+        uart_puts(" bytes, MetalVM (bare-metal, libc-free)\n");
+        uart_puts("  kmain.sgvm : compiled via sagevm --riscv\n");
+        uart_puts("  Runtime:     MetalVM (metal_vm.c / metal_rv64_vm.c)\n\n");
+    } else {
+        uart_puts("  shell.sgvm : not embedded\n");
+        uart_puts("  Reason: shell/shell.sgvm absent at link time.\n");
+        uart_puts("  Action: ./sagemake compile-shell && ./sagemake build\n\n");
+    }
 }
 
 static void cmd_clear(void) {
@@ -257,7 +311,7 @@ static void cmd_clear(void) {
 static void cmd_uptime(void) {
     uart_puts("System uptime: ");
     uart_put_dec(system_ticks);
-    uart_puts(" seconds\n");
+    uart_puts(" ticks (500ms each)\n");
 }
 
 static void cmd_about(void) {
@@ -265,15 +319,15 @@ static void cmd_about(void) {
     uart_puts("Target: LicheeRV Nano (Sophgo SG2002, RISC-V 64)\n");
     uart_puts("Philosophy: C only where silicon requires it.\n");
     uart_puts("            Everything else is Pure Sage.\n\n");
-    uart_puts("VM: SRVM from SageVM (github.com/Night-Traders-Dev/SageVM)\n");
-    uart_puts("    RV64I bytecode interpreter, pure Sage, no libc.\n\n");
+    uart_puts("VM:    MetalVM (SageLang core/src/metal_vm.c)\n");
+    uart_puts("       Bare-metal, libc-free, RV64 bytecode interpreter\n\n");
 }
 
 static void process_command(const char *line) {
     if (line[0] == '\0')
         return;
 
-    const char *cmd = line;
+    const char *cmd  = line;
     const char *args = line;
     while (*args && *args != ' ')
         args++;
@@ -281,30 +335,23 @@ static void process_command(const char *line) {
     if (*args == ' ')
         args++;
 
-    if (strncmp(cmd, "help", cmd_len) == 0 && cmd_len == 4) {
-        cmd_help();
-    } else if (strncmp(cmd, "version", cmd_len) == 0 && cmd_len == 7) {
-        cmd_version();
-    } else if (strncmp(cmd, "mem", cmd_len) == 0 && cmd_len == 3) {
-        cmd_mem();
-    } else if (strncmp(cmd, "srvm", cmd_len) == 0 && cmd_len == 4) {
-        cmd_srvm();
-    } else if (strncmp(cmd, "clear", cmd_len) == 0 && cmd_len == 5) {
-        cmd_clear();
-    } else if (strncmp(cmd, "uptime", cmd_len) == 0 && cmd_len == 6) {
-        cmd_uptime();
-    } else if (strncmp(cmd, "about", cmd_len) == 0 && cmd_len == 5) {
-        cmd_about();
-    } else if (strncmp(cmd, "reboot", cmd_len) == 0 && cmd_len == 6) {
+    if      (strncmp(cmd, "help",     cmd_len) == 0 && cmd_len == 4) cmd_help();
+    else if (strncmp(cmd, "version",  cmd_len) == 0 && cmd_len == 7) cmd_version();
+    else if (strncmp(cmd, "mem",      cmd_len) == 0 && cmd_len == 3) cmd_mem();
+    else if (strncmp(cmd, "srvm",     cmd_len) == 0 && cmd_len == 4) cmd_srvm();
+    else if (strncmp(cmd, "clear",    cmd_len) == 0 && cmd_len == 5) cmd_clear();
+    else if (strncmp(cmd, "uptime",   cmd_len) == 0 && cmd_len == 6) cmd_uptime();
+    else if (strncmp(cmd, "about",    cmd_len) == 0 && cmd_len == 5) cmd_about();
+    else if (strncmp(cmd, "reboot",   cmd_len) == 0 && cmd_len == 6) {
         uart_puts("System rebooting...\n");
         sbi_cold_reboot();
     } else if (strncmp(cmd, "poweroff", cmd_len) == 0 && cmd_len == 8) {
         uart_puts("System powering off...\n");
         sbi_shutdown();
-    } else if (strncmp(cmd, "halt", cmd_len) == 0 && cmd_len == 4) {
+    } else if (strncmp(cmd, "halt",    cmd_len) == 0 && cmd_len == 4) {
         uart_puts("System halting...\n");
         shell_running = 0;
-    } else if (strncmp(cmd, "echo", cmd_len) == 0 && cmd_len == 4) {
+    } else if (strncmp(cmd, "echo",    cmd_len) == 0 && cmd_len == 4) {
         uart_puts(args);
         uart_puts("\n");
     } else {
@@ -312,7 +359,6 @@ static void process_command(const char *line) {
     }
 }
 
-/* Simple string comparison */
 static int strncmp(const char *a, const char *b, int n) {
     for (int i = 0; i < n; i++) {
         if (a[i] != b[i])
@@ -330,7 +376,6 @@ static size_t strlen(const char *s) {
     return len;
 }
 
-/* Timer helpers */
 static int use_sstc = 0;
 
 static void timer_arm(uint64_t deadline) {
@@ -341,20 +386,14 @@ static void timer_arm(uint64_t deadline) {
     }
 }
 
-/* Poll for and handle pending timer tick (forward declaration) */
 static void timer_poll(void);
 
-/* Get character from UART or SBI (non-blocking poll of both) */
 static int console_getchar(void) {
-    int c;
-    c = uart_getchar();
-    if (c >= 0)
-        return c;
-    c = sbi_console_getchar();
-    return c;
+    int c = uart_getchar();
+    if (c >= 0) return c;
+    return sbi_console_getchar();
 }
 
-/* Shell main loop with periodic timer polling */
 static void shell_main(void) {
     uart_puts("SageOS-RV Shell (type 'help' for commands)\n\n");
 
@@ -370,14 +409,10 @@ static void shell_main(void) {
             int c = -1;
             for (int tries = 0; tries < 1000; tries++) {
                 c = console_getchar();
-                if (c >= 0)
-                    break;
+                if (c >= 0) break;
                 timer_poll();
             }
-            if (c < 0) {
-                timer_poll();
-                continue;
-            }
+            if (c < 0) { timer_poll(); continue; }
 
             if (c == '\r' || c == '\n') {
                 uart_putc('\r');
@@ -388,23 +423,16 @@ static void shell_main(void) {
                 if (pos > 0) {
                     pos--;
                     buf[pos] = '\0';
-                    uart_putc('\b');
-                    uart_putc(' ');
-                    uart_putc('\b');
+                    uart_putc('\b'); uart_putc(' '); uart_putc('\b');
                 }
             } else if (c >= 32 && c < 127) {
-                if (pos < 255) {
-                    buf[pos++] = (char)c;
-                    uart_putc((char)c);
-                }
+                if (pos < 255) buf[pos++] = (char)c, uart_putc((char)c);
             }
         }
-
         process_command(buf);
     }
 }
 
-/* Poll for and handle pending timer tick */
 static void timer_poll(void) {
     uint64_t sip_val;
     __asm__ volatile("csrr %0, sip" : "=r"(sip_val));
@@ -416,18 +444,15 @@ static void timer_poll(void) {
     }
 }
 
-/* Start the periodic timer — try SSTC stimecmp first, fall back to SBI */
 static void timer_start(void) {
     uint64_t time;
     __asm__ volatile("rdtime %0" : "=r"(time));
 
     uint64_t probe_val = 0xAAAA5555AAAA5555UL;
-    uint64_t readback = 0;
+    uint64_t readback  = 0;
     __asm__ volatile("csrw 0x14D, %1\n\t"
                      "csrr %0, 0x14D"
-                     : "=r"(readback)
-                     : "r"(probe_val)
-                     : "memory");
+                     : "=r"(readback) : "r"(probe_val) : "memory");
     if (readback == probe_val) {
         use_sstc = 1;
         timer_arm(time + TIMER_FREQ / 2);
@@ -443,8 +468,10 @@ static void timer_start(void) {
     __asm__ volatile("csrs sie, %0" :: "r"(0x20));
 }
 
-/* Kernel main — called from boot.S */
-/* a0 = hart_id, a1 = DTB address (OpenSBI S-mode convention) */
+/* ---------------------------------------------------------------------------
+ * sage_kernel_main — called from boot.S
+ * a0 = hart_id, a1 = DTB address (OpenSBI S-mode convention)
+ * --------------------------------------------------------------------------- */
 void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_init();
 
@@ -457,7 +484,6 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
 
     uart_puts("[1/7] Console initialized\n");
 
-    /* Parse device tree to discover hardware */
     int dtb_ok = dtb_parse(dtb_addr, &hw);
     if (dtb_ok == 0) {
         uart_puts("  DTB: ");
@@ -478,7 +504,6 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         uart_puts("  DTB: fallback defaults\n");
     }
 
-    /* Re-init UART in case DTB reported a different base */
     uart_init();
 
     uart_puts("[2/7] Memory: ");
@@ -493,13 +518,10 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("[3/7] VMM: ");
     int vmm_ok = vmm_init();
     if (vmm_ok == 0) {
-        /* Identity map kernel code + data */
         vmm_identity_map(0x80200000UL, 0x81000000UL,
                          PTE_R | PTE_W | PTE_X | PTE_G);
-        /* Identity map UART MMIO */
         vmm_identity_map(hw.uart_base, hw.uart_base + 0x1000,
                          PTE_R | PTE_W | PTE_G);
-        /* Identity map PLIC */
         if (hw.plic_base)
             vmm_identity_map(hw.plic_base, hw.plic_base + 0x400000,
                              PTE_R | PTE_W | PTE_G);
@@ -512,7 +534,6 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("[4/7] Timer: ");
     timer_start();
 
-    /* Poll until first timer tick to verify timer works */
     for (int i = 0; i < 3; i++) {
         uint64_t deadline, now;
         __asm__ volatile("rdtime %0" : "=r"(deadline));
@@ -526,19 +547,50 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
                 break;
             }
             __asm__ volatile("rdtime %0" : "=r"(now));
-            if (now >= deadline) {
-                uart_puts("  Timeout\n");
-                break;
-            }
+            if (now >= deadline) { uart_puts("  Timeout\n"); break; }
             __asm__ volatile("wfi");
         }
     }
 
     uart_puts("[5/7] Kernel ready\n");
-    uart_puts("[6/7] SRVM: requires Sage transpilation (see kmain.sage)\n");
+
+    /* -----------------------------------------------------------------------
+     * [6/7] MetalVM init — always initialise the VM so the I/O callbacks
+     * (uart_putc / uart_getchar) are wired before we need them.
+     * ----------------------------------------------------------------------- */
+    {
+        const uint8_t *blob = sgvm_shell_data();
+        uint32_t       bsz  = sgvm_shell_size();
+        if (blob && bsz > 0) {
+            uart_puts("[6/7] MetalVM: shell.sgvm embedded (");
+            uart_put_dec(bsz);
+            uart_puts(" bytes)\n");
+            sage_metal_vm_init();
+        } else {
+            uart_puts("[6/7] MetalVM: shell.sgvm absent — C shell fallback\n");
+        }
+    }
+
     uart_puts("[7/7] Starting shell...\n\n");
 
-    shell_main();
+    /* -----------------------------------------------------------------------
+     * Shell dispatch: MetalVM path takes priority when blob is present.
+     * ----------------------------------------------------------------------- */
+    {
+        const uint8_t *blob = sgvm_shell_data();
+        uint32_t       bsz  = sgvm_shell_size();
+        if (blob && bsz > 0) {
+            int rc = sage_metal_vm_exec(blob, bsz);
+            if (rc != 0) {
+                uart_puts("MetalVM exited (rc=");
+                uart_put_dec((uint64_t)(rc < 0 ? (uint64_t)-rc : (uint64_t)rc));
+                uart_puts(") — falling back to C shell\n\n");
+                shell_main();
+            }
+        } else {
+            shell_main();
+        }
+    }
 
     uart_puts("\nSystem halted.\n");
     while (1)
