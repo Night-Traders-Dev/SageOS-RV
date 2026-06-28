@@ -10,9 +10,7 @@ set -euo pipefail
 ##   qemu            Run OS in QEMU emulator
 ##   build-run       Build then run in QEMU
 ##   image           Generate disk image
-##   flash           Flash image to SD card
 ##   test            Run test suite
-##   bench           Run benchmarks
 ##   version         Show version info
 ##   compile-kernel  Compile kernel/kmain.sage -> kernel/kmain.sgvm
 ##   run-kernel      Run kernel/kmain.sgvm via sagevm
@@ -71,17 +69,20 @@ BOARD="${BOARD:-qemu-virt}"
 BUILD_DIR="${SCRIPT_DIR}/build"
 IMAGE_DIR="${SCRIPT_DIR}/images"
 
-## Bare-metal compile flags (applied uniformly to all C/ASM sources)
+## Bare-metal compile flags
 BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
 BM_DEFS="-DSAGE_BARE_METAL"
 
 ## Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 YELLOW='\033[1;33m'; DIM='\033[0;90m'; BOLD='\033[1m'; RESET='\033[0m'
-info() { printf "${CYAN}  [INFO]${RESET} %s\n" "$1"; }
-ok()   { printf "${GREEN}  [OK]${RESET}   %s\n" "$1"; }
-warn() { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1"; }
-fail() { printf "${RED}  [FAIL]${RESET} %s\n" "$1"; exit 1; }
+info() { printf "${CYAN}  [INFO]${RESET} %s\n" "$1" >&2; }
+ok()   { printf "${GREEN}  [OK]${RESET}   %s\n" "$1" >&2; }
+warn() { printf "${YELLOW}  [WARN]${RESET} %s\n" "$1" >&2; }
+fail() { printf "${RED}  [FAIL]${RESET} %s\n" "$1" >&2; exit 1; }
+
+## Re-print ok/warn/fail to stdout for the build summary lines
+## (the summary block in cmd_build uses direct printf, not these helpers)
 
 sagevm_check() { command -v "$SAGEVM" >/dev/null 2>&1 || [ -x "$SAGEVM" ]; }
 
@@ -95,38 +96,28 @@ rtos_available() {
 cmd_setup_rtos() {
     mkdir -p "${SCRIPT_DIR}/rtos"
 
-    ## Already present — nothing to do
     if [ -d "${RTOS_DIR}/.git" ]; then
         ok "rtos/SageRTOS already present ($(git -C "${RTOS_DIR}" rev-parse --short HEAD 2>/dev/null || echo '?'))"
         return
     fi
 
-    ## Remove any empty/partial directory left by a previous failed attempt
     [ -d "${RTOS_DIR}" ] && rm -rf "${RTOS_DIR}"
 
     info "Cloning SageRTOS into rtos/SageRTOS ..."
     git clone --depth=1 --branch main \
-        "${SAGELANG_CORE:+}${SAGERTOS_REPO:-${SAGELANG_CORE:+}}${SAGERTOS_REPO:-${SAGERTOS_REPO:-${SAGERTOS_REPO:-}}}${SAGERTOS_REPO:-${SAGERTOS_REPO:-$SAGERTOS_REPO}}" \
-        "${RTOS_DIR}" 2>&1 || true
-
-    ## Plain clone (override the mess above with the actual correct invocation)
-    if [ ! -d "${RTOS_DIR}/.git" ]; then
-        git clone --depth=1 --branch main \
-            "$SAGERTOS_REPO" \
-            "${RTOS_DIR}" \
-            && ok "SageRTOS cloned to rtos/SageRTOS" \
-            || fail "Clone failed — check network or repo URL: ${SAGERTOS_REPO}"
-    fi
+        "$SAGERTOS_REPO" \
+        "${RTOS_DIR}" \
+        && ok "SageRTOS cloned to rtos/SageRTOS" \
+        || fail "Clone failed -- check network or repo: ${SAGERTOS_REPO}"
 
     rtos_available \
         && ok "SageRTOS ready: ${RTOS_DIR}" \
-        || warn "Cloned but sagertos_rv64.c not found — check repo structure"
+        || warn "Cloned but sagertos_rv64.c not found -- check repo structure"
 }
 
-## Compile the RTOS RV64 port (C + ASM) into build/
 compile_rtos() {
     if ! rtos_available; then
-        warn "SageRTOS not found at ${RTOS_DIR} — skipping RTOS compilation"
+        warn "SageRTOS not found at ${RTOS_DIR} -- skipping RTOS compilation"
         warn "  Run: ./sagemake setup-rtos"
         return
     fi
@@ -161,7 +152,7 @@ compile_kernel_sgvm() {
     local src="${SCRIPT_DIR}/kernel/kmain.sage"
     local out="${SCRIPT_DIR}/kernel/kmain.sgvm"
     [ -f "${src}" ] || { warn "kernel/kmain.sage not found"; return; }
-    sagevm_check || { warn "sagevm not found — skipping kmain.sgvm"; return; }
+    sagevm_check || { warn "sagevm not found -- skipping kmain.sgvm"; return; }
     info "Compiling kernel/kmain.sage -> kernel/kmain.sgvm ..."
     if "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1; then
         ok "kmain.sgvm ($(wc -c < "${out}") bytes)"
@@ -173,35 +164,53 @@ compile_kernel_sgvm() {
 compile_shell_sgvm() {
     local src="${SCRIPT_DIR}/shell/shell.sage"
     local out="${SCRIPT_DIR}/shell/shell.sgvm"
-    [ -f "${src}" ] || { warn "shell/shell.sage not found"; return; }
-    sagevm_check || { warn "sagevm not found — skipping shell.sgvm"; return; }
+    [ -f "${src}" ] || fail "shell/shell.sage not found -- cannot build without shell"
+    sagevm_check || fail "sagevm not found -- cannot compile shell.sgvm"
     info "Compiling shell/shell.sage -> shell/shell.sgvm ..."
     if "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1; then
         ok "shell.sgvm ($(wc -c < "${out}") bytes)"
     else
-        warn "sagevm compile shell failed"
+        fail "shell/shell.sage compilation failed -- fix shell.sage before building"
     fi
 }
 
+## ---------------------------------------------------------------------------
+## embed_shell_sgvm
+##
+## CRITICAL: all output except the final object-file path goes to stderr.
+## The function is called as:  sgvm_obj=$(embed_shell_sgvm)
+## so ONLY the path echoed at the very end must appear on stdout.
+## ---------------------------------------------------------------------------
 embed_shell_sgvm() {
     local src="${SCRIPT_DIR}/shell/shell.sgvm"
     local obj="${BUILD_DIR}/shell_sgvm.o"
+
+    ## shell.sgvm must exist at this point -- compile_shell_sgvm() above
+    ## already called fail() if it couldn't produce it.
     if [ ! -f "${src}" ]; then
-        warn "shell/shell.sgvm not found — C shell fallback"
-        printf '\0' | $OBJCOPY \
-            -I binary -O elf64-littleriscv \
-            --rename-section .data=.sgvm_shell \
-            --set-section-flags .sgvm_shell=alloc,load,readonly \
-            /dev/stdin "${obj}" 2>/dev/null || true
-        echo "${obj}"; return
+        fail "embed_shell_sgvm: ${src} missing after compile step -- aborting"
     fi
-    info "Embedding shell/shell.sgvm ($(wc -c < "${src}") bytes)..."
+
+    local bsz
+    bsz=$(wc -c < "${src}")
+    info "Embedding shell/shell.sgvm (${bsz} bytes) into .sgvm_shell section..." >&2
+
     $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
         --rename-section .data=.sgvm_shell \
         --set-section-flags .sgvm_shell=alloc,load,readonly \
         "${src}" "${obj}" \
-        && ok "shell_sgvm.o embedded" || warn "objcopy failed"
+        && ok "shell_sgvm.o embedded (${bsz} bytes)" \
+        || fail "objcopy embed failed for shell.sgvm"
+
+    ## Patch SGVM_SECTION_SIZE in build/kernel.c so Sage code sees the
+    ## real blob size at runtime.
+    if [ -f "${BUILD_DIR}/kernel.c" ]; then
+        sed -i "s/let SGVM_SECTION_SIZE = 0/let SGVM_SECTION_SIZE = ${bsz}/g" \
+            "${BUILD_DIR}/kernel.c" 2>/dev/null || true
+    fi
+
+    ## stdout: ONLY the object file path
     echo "${obj}"
 }
 
@@ -242,46 +251,66 @@ cmd_run_shell() {
     "$SAGEVM" run "${sgvm}"
 }
 
+cmd_setup_metalvm() {
+    local src_c="${SAGELANG_CORE}/core/metal_vm.c"
+    local src_rv="${SAGELANG_CORE}/core/metal_rv64_vm.c"
+    local src_h="${SAGELANG_CORE}/core/metal_vm.h"
+    local src_rvh="${SAGELANG_CORE}/core/metal_rv64_vm.h"
+    local dst="${SCRIPT_DIR}/kernel"
+    [ -f "${src_c}" ]  || fail "metal_vm.c not found at ${src_c}. Set SAGELANG_CORE."
+    cp "${src_c}"   "${dst}/metal_vm_bundled.c"
+    cp "${src_rv}"  "${dst}/metal_rv64_vm_bundled.c"
+    cp "${src_h}"   "${dst}/metal_vm.h"
+    cp "${src_rvh}" "${dst}/metal_rv64_vm.h"
+    ok "MetalVM sources bundled into kernel/"
+}
+
 ## ---------------------------------------------------------------------------
-## cmd_build — full build pipeline
+## cmd_build
 ## ---------------------------------------------------------------------------
 cmd_build() {
-    printf "\n${BOLD}  SageOS-RV Build${RESET}\n"
-    printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH"
+    printf "\n${BOLD}  SageOS-RV Build${RESET}\n" >&2
+    printf "  ${DIM}Board: %s | Arch: %s${RESET}\n\n" "$BOARD" "$ARCH" >&2
     mkdir -p "$BUILD_DIR" "$IMAGE_DIR"
 
     cmd_ensure_srvm
 
-    ## 1. Boot
+    ## 1. Boot assembly
     info "Generating boot assembly from Sage..."
     $SAGE --emit-c "${SCRIPT_DIR}/boot/start.sage" \
         -o "${BUILD_DIR}/boot_generated.c" 2>/dev/null \
-        || warn "Sage boot emit failed, using fallback C"
+        || warn "Sage boot emit failed (boot.S used directly)"
 
     info "Compiling RISC-V boot assembly..."
     $CC $BM_CFLAGS \
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly failed"
 
-    ## 2. Sage bytecode
+    ## 2. Sage bytecode -- shell MUST succeed (fail() on error)
     compile_kernel_sgvm
     compile_shell_sgvm
-    local sgvm_obj; sgvm_obj=$(embed_shell_sgvm)
 
-    ## 3. RTOS RV64 port
+    ## 3. Embed shell.sgvm -- stdout ONLY returns the .o path
+    local sgvm_obj
+    sgvm_obj=$(embed_shell_sgvm)
+
+    ## 4. RTOS
     compile_rtos
 
-    ## 4. Kernel C
+    ## 5. Kernel C (from Sage transpiler) -- MUST succeed; no fallback
     info "Compiling kernel from Sage to C..."
-    $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" \
-        -o "${BUILD_DIR}/kernel.c" 2>/dev/null \
-        || { warn "Sage kernel emit failed, using fallback";
-             cp "${SCRIPT_DIR}/kernel/fallback_kernel.c" \
-                "${BUILD_DIR}/kernel.c" 2>/dev/null || true; }
+    if ! $SAGE --emit-c "${SCRIPT_DIR}/kernel/kmain.sage" \
+            -o "${BUILD_DIR}/kernel.c" 2>/dev/null; then
+        fail "Sage kernel emit failed -- fix kernel/kmain.sage before building (no C fallback)"
+    fi
 
-    ## Determine RTOS include flags
-    local rtos_defs=""
-    local rtos_inc=""
+    ## Patch SGVM_SECTION_SIZE into the transpiled kernel.c
+    local bsz
+    bsz=$(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm")
+    sed -i "s/SGVM_SECTION_SIZE = 0/SGVM_SECTION_SIZE = ${bsz}/g" \
+        "${BUILD_DIR}/kernel.c" 2>/dev/null || true
+
+    local rtos_defs="" rtos_inc=""
     if rtos_available; then
         rtos_defs="-DSAGE_RTOS"
         rtos_inc="-I${RTOS_DIR}/src/rv64"
@@ -294,7 +323,8 @@ cmd_build() {
         $rtos_inc \
         -DCONFIG_BOARD=\"${BOARD}\" \
         -c "${BUILD_DIR}/kernel.c" \
-        -o "${BUILD_DIR}/kernel.o" 2>&1 || warn "Kernel C compile had issues"
+        -o "${BUILD_DIR}/kernel.o" 2>&1 \
+        || fail "Kernel C compile failed"
 
     info "Compiling DTB parser..."
     $CC $BM_CFLAGS -I"${SCRIPT_DIR}/kernel" \
@@ -306,7 +336,7 @@ cmd_build() {
         -c "${SCRIPT_DIR}/kernel/vmm.c" \
         -o "${BUILD_DIR}/vmm.o" || fail "VMM compile failed"
 
-    ## 5. Drivers
+    ## 6. Drivers
     info "Compiling drivers..."
     for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
         [ -f "$sage_file" ] || continue
@@ -318,7 +348,7 @@ cmd_build() {
         fi
     done
 
-    ## 6. Link
+    ## 7. Link
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
     local drv_objs=()
@@ -343,23 +373,21 @@ cmd_build() {
         "${extra_objs[@]}" \
         "${drv_objs[@]}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
-        && ok "Linked sageos.elf" || warn "Link had issues"
+        && ok "Linked sageos.elf" || fail "Link failed"
 
-    if [ -f "${BUILD_DIR}/sageos.elf" ]; then
-        $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
-        ok "Created sageos.bin"
-    fi
+    $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
+    ok "Created sageos.bin"
 
-    rtos_available && ok "RTOS: SageRTOS RV64 linked" \
-                  || warn "RTOS: not linked (run ./sagemake setup-rtos)"
-    [ -f "${SCRIPT_DIR}/kernel/kmain.sgvm" ] \
-        && ok "Kernel: kmain.sgvm ($(wc -c < "${SCRIPT_DIR}/kernel/kmain.sgvm") bytes, MetalVM)" \
-        || warn "Kernel: C transpile only"
-    [ -f "${SCRIPT_DIR}/shell/shell.sgvm" ] \
-        && ok "Shell:  shell.sgvm ($(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm") bytes, SRVM)" \
-        || warn "Shell:  built-in fallback"
-
-    printf "\n  ${DIM}Build complete.${RESET}\n\n"
+    ## Build summary
+    printf "\n" >&2
+    rtos_available \
+        && printf "${GREEN}  [OK]${RESET}   RTOS: SageRTOS RV64 linked\n" >&2 \
+        || printf "${YELLOW}  [WARN]${RESET} RTOS: not linked (run ./sagemake setup-rtos)\n" >&2
+    printf "${GREEN}  [OK]${RESET}   Kernel: kmain.sgvm (%s bytes, MetalVM)\n" \
+        "$(wc -c < "${SCRIPT_DIR}/kernel/kmain.sgvm" 2>/dev/null || echo 0)" >&2
+    printf "${GREEN}  [OK]${RESET}   Shell:  shell.sgvm (%s bytes, patched)\n" \
+        "$(wc -c < "${SCRIPT_DIR}/shell/shell.sgvm" 2>/dev/null || echo 0)" >&2
+    printf "\n  ${DIM}Build complete.${RESET}\n\n" >&2
 }
 
 cmd_clean() {
@@ -426,7 +454,7 @@ case "${1:-help}" in
     compile-shell)   cmd_compile_shell ;;
     run-shell)       cmd_run_shell ;;
     setup-srvm)      cmd_setup_srvm ;;
-    setup-metalvm)   cmd_setup_metalvm 2>/dev/null || warn "setup-metalvm not defined" ;;
+    setup-metalvm)   cmd_setup_metalvm ;;
     setup-rtos)      cmd_setup_rtos ;;
     help|--help|-h)  cmd_help ;;
     *)               echo "Unknown command: $1"; cmd_help; exit 1 ;;
