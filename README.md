@@ -1,172 +1,159 @@
 # SageOS-RV
 
-**A Pure Sage operating system for the LicheeRV Nano (RISC-V 64).**
+**A pure-Sage operating system for RISC-V 64.**  
+Target hardware: LicheeRV Nano (Sophgo SG2002, rv64imac). Development platform: QEMU `virt`.
 
-SageOS-RV is a dogfooding operating system built almost entirely in SageLang,
-targeting the Sophgo SG2002 SoC on the Sipeed LicheeRV Nano. Every line above
-the hardware abstraction layer is written in Sage itself, making this the
-canonical demonstration that SageLang can build a complete software stack from
-bare metal to applications.
+---
 
-## Architecture
+## Architecture Overview
 
-```
-LicheeRV Nano (SG2002, RISC-V 64)
-      |
-  ROM Boot -> Vendor FSBL -> OpenSBI -> SageBoot
-      |
-  Sage Kernel (PMM, VMM, SBI, Timer, Shell)
-      |
-  +-----------+-----------+
-  |           |           |
- SageRTOS   SageVM    Sage VFS
- Scheduler  Runtime    VFS/FS
-  |           |           |
-  +-----------+-----------+
-      |
-  Sage System Libraries
-      |
-  Sage Shell -> User Applications
-```
-
-## Boot Sequence
+SageOS-RV uses a two-layer execution model:
 
 ```
-QEMU virt machine
-  |
-  ROM (reset vector at 0x80000000)
-  |
-  OpenSBI v1.8 (M-mode, 0x80000000)
-    - Platform init, PMP config
-    - Domain0: S-mode at 0x80200000
-    - Delegates IRQs (MIDELEG) and traps (MEDELEG)
-    - SBI v3.0 extensions: srst, time, dbcn
-  |
-  +--> boot.S (S-mode at 0x80200000)
-         |  1. SBI ecall putchar: "SBI"
-         |  2. Init UART (IER/FCR/LCR via byte accesses)
-         |  3. Direct UART putchar: "K!"
-         |  4. Clear BSS
-         |  5. Call sage_kernel_main()
-         |
-         +--> fallback_kernel.c (C kernel)
-                |  Phase 1: Console (UART 16550A @ 0x10000000)
-                |  Phase 2: PMM (128 MB RAM, 32768 pages)
-                |  Phase 3: Timer (SBI time, 500ms interval)
-                |  Phase 4: Shell (sage# prompt)
-                |
-                Commands: help version mem uptime reboot poweroff halt clear echo
+┌─────────────────────────────────────────────┐
+│  SageOS-RV kernel image (sageos.elf)        │
+│                                             │
+│  boot.S          bare-metal entry (C/ASM)   │
+│  fallback_kernel.c  C boot stage            │
+│  dtb.c / vmm.c   hardware abstraction       │
+│                                             │
+│  .sgvm_shell section                        │
+│  ┌─────────────────────────────────────┐   │
+│  │  shell.sgvm  (MetalVM bytecode)     │   │
+│  │  compiled from shell/shell.sage     │   │
+│  │  via: sagevm compile --riscv        │   │
+│  └─────────────────────────────────────┘   │
+│                                             │
+│  MetalVM  (metal_vm.c + metal_rv64_vm.c)    │
+│  bare-metal, libc-free bytecode interpreter │
+└─────────────────────────────────────────────┘
 ```
 
-## Current Status — v0.1.0-alpha
+| Layer | Source | Compiled by | Role |
+|---|---|---|---|
+| Boot stub | `boot/arch/rv64/boot.S` | `riscv64-linux-gnu-gcc` | Minimal ASM entry, jumps to `sage_kernel_main` |
+| C kernel | `kernel/fallback_kernel.c` | `riscv64-linux-gnu-gcc -nostdlib -ffreestanding` | Hardware init, PMM, VMM, timer, shell dispatch |
+| MetalVM | `metal_vm.c` / `metal_rv64_vm.c` | same | Bare-metal bytecode interpreter (no libc) |
+| Shell | `shell/shell.sage` | `sagevm compile --riscv` | Interactive shell as `.sgvm` bytecode |
+| Kernel logic | `kernel/kmain.sage` | `sagevm compile --riscv` | Kernel init as `.sgvm` bytecode |
 
-| Component          | Status     | Details                                    |
-|--------------------|------------|--------------------------------------------|
-| Boot assembly      | ✅ Done    | SBI ecall + UART init, byte accesses       |
-| UART driver        | ✅ Done    | 16550A direct MMIO (polling)               |
-| SBI wrappers       | ✅ Done    | putchar, getchar, set_timer, srst          |
-| PMM                | ✅ Done    | Flat 128MB, 4K pages, 32768 total          |
-| Timer (polling)    | ✅ Done    | SBI TIME extension, 500ms periodic tick    |
-| Shell              | ✅ Done    | Line editing, 6 commands + echo            |
-| System reset       | ✅ Done    | SBI SRST: reboot, poweroff, halt           |
-| Timer IRQ (stvec)  | ❌ Blocked | sstatus.SIE is WARL-0 in QEMU 10.2 virt    |
-| Sage transpilation | ❌ Pending | sage --emit-c fails, using C fallback      |
-| VMM                | ❌ Pending | Page tables, virtual memory                |
-| DTB parser         | ❌ Pending | FDT/flattened device tree                  |
-| Disk/FS            | ❌ Pending | VirtIO block, FAT32                        |
+---
 
-## Build System
+## Quick Start
+
+### Prerequisites
 
 ```bash
-# Full build
-./sagemake build
+# RISC-V cross-toolchain
+sudo apt install gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu
 
-# Run in QEMU
-./sagemake qemu
+# QEMU
+sudo apt install qemu-system-misc
 
-# Build + Run
-./sagemake build-run
+# OpenSBI (for QEMU -bios)
+sudo apt install opensbi
 
-# Clean artifacts
-./sagemake clean
+# SageLang (for .sage -> .sgvm compilation)
+# https://github.com/Night-Traders-Dev/SageLang
 ```
 
-### Build Pipeline
-
-1. SageLang `--emit-c` (failed → fallback to C)
-2. `boot.S` compiled with `riscv64-linux-gnu-gcc` (`rv64imac_zicsr_zifencei`, `lp64`)
-3. C kernel compiled (`-nostdlib -ffreestanding -O2`)
-4. Linked at `0x80200000` with custom linker script
-5. `objcopy` → `sageos.elf` / `sageos.bin`
-
-### QEMU Command
+### Build and Run
 
 ```bash
-qemu-system-riscv64 \
-  -machine virt \
-  -cpu rv64 \
-  -smp 1 \
-  -m 128M \
-  -nographic \
-  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin \
-  -kernel build/sageos.elf \
-  -serial mon:stdio
+git clone https://github.com/Night-Traders-Dev/SageOS-RV
+cd SageOS-RV
+
+./sagemake build        # compile everything
+./sagemake qemu         # boot in QEMU
+./sagemake build-run    # build + boot in one step
 ```
 
-## Requirements
+### Expected Boot Output
 
-- **SageLang** v3.9.5+ (`sage` on PATH)
-- **QEMU** 8+ (`qemu-system-riscv64`)
-- **RISC-V cross-compiler** `riscv64-linux-gnu-gcc` (GCC 13+)
-- **OpenSBI** v1.3+ (`fw_dynamic.bin`)
+```
+========================================
+  SageOS-RV v0.1.0-alpha
+  Pure Sage Operating System
+  RISC-V 64 | QEMU virt
+========================================
 
-## Project Structure
+[1/7] Console initialized
+  DTB: 0x20000 KB @ 0x80200000, timer 10 MHz
+[2/7] Memory: 32768 pages (131072 KB) — 512 bitmap words
+[3/7] VMM: SV39 active
+[4/7] Timer: stimecmp @ 10 MHz, 500ms
+[5/7] Kernel ready
+[6/7] MetalVM: shell.sgvm embedded (8258 bytes)
+[7/7] Starting shell...
+
+SageOS-RV Shell (type 'help' for commands)
+
+sage#
+```
+
+---
+
+## sagemake Commands
+
+| Command | Description |
+|---|---|
+| `build` | Full build: boot + kernel + MetalVM + shell.sgvm |
+| `clean` | Remove build artifacts |
+| `qemu` | Launch QEMU with the built kernel |
+| `build-run` | `build` then `qemu` |
+| `compile-kernel` | `sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv` |
+| `run-kernel` | `sagevm run kernel/kmain.sgvm` (host-side test) |
+| `compile-shell` | `sagevm compile shell/shell.sage shell/shell.sgvm --riscv` |
+| `run-shell` | `sagevm run shell/shell.sgvm` (host-side test) |
+| `setup-srvm` | Copy SRVM sources from SageVM repo into `kernel/` |
+| `version` | Print toolchain versions |
+
+See [docs/sagemake.md](docs/sagemake.md) for full documentation.
+
+---
+
+## MetalVM and SRVM
+
+All Sage code in SageOS-RV runs through **MetalVM**, a bare-metal bytecode interpreter from [SageLang](https://github.com/Night-Traders-Dev/SageLang) built with `-nostdlib -ffreestanding`. No libc, no dynamic allocation outside the kernel's own PMM.
+
+The **SRVM** (Sage RISC-V VM) is a pure-Sage VM layer (`kernel/srvm_vm.sage` + `kernel/srvm_core.sage`) that provides the in-kernel scripting environment. It is compiled to `.sgvm` bytecode and embedded in the kernel image.
+
+See [docs/metalvm.md](docs/metalvm.md) for the full architecture.
+
+---
+
+## Repository Layout
 
 ```
 SageOS-RV/
-  sagemake          Build system (bash)
-  boot/             SageBoot (entry, SBI, loader)
-    arch/rv64/       boot.S, linker.ld, sbi.h
-  kernel/           Kernel modules
-    kmain.sage      Bootstrap (SageLang → transpiled)
-    fallback_kernel.c  Working C kernel (fallback)
-    sbi.h           SBI ecall wrappers
-  drivers/          Device drivers
-  rtos/             SageRTOS (scheduler, IPC)
-  fs/               Filesystem
-  shell/            Sage Shell
-  lib/              System libraries
-  tools/            Development tools
-  tests/            Test suite
-  config/           Build configurations
-  images/           Built images
+├── boot/
+│   └── arch/rv64/
+│       ├── boot.S          bare-metal entry point
+│       └── linker.ld       memory layout + .sgvm_shell section
+├── kernel/
+│   ├── fallback_kernel.c   C boot kernel + shell dispatch
+│   ├── kmain.sage          Sage kernel logic
+│   ├── kmain.sgvm          compiled MetalVM bytecode (committed)
+│   ├── dtb.c / dtb.h       device tree parser
+│   ├── vmm.c / vmm.h       SV39 virtual memory
+│   ├── sbi.h               SBI call wrappers
+│   ├── srvm_core.sage      SRVM core (from SageVM)
+│   └── srvm_vm.sage        SRVM VM (from SageVM)
+├── shell/
+│   ├── shell.sage          interactive shell source
+│   └── shell.sgvm          compiled MetalVM bytecode
+├── drivers/                Sage driver sources
+├── config/
+│   └── build.conf          board / toolchain config
+├── docs/
+│   ├── metalvm.md          MetalVM + SRVM architecture
+│   └── sagemake.md         sagemake command reference
+├── sagemake                build system
+└── VERSION
 ```
 
-## Roadmap
-
-- **Phase 0** ✅ Infrastructure (repo, build, QEMU, OpenSBI)
-- **Phase 1** ✅ SageMake (build system)
-- **Phase 2** ✅ SageBoot (RISC-V boot, SBI, UART, PMM)
-- **Phase 3** 🔶 Kernel (VMM, interrupts, DTB, scheduler iface)
-- **Phase 4** ❐ SageRTOS (scheduling, sync, IPC)
-- **Phase 5** ❐ SageVM (runtime, GC, bytecode)
-- **Phase 6** ❐ Filesystem (VFS, FAT32, InitFS)
-- **Phase 7** ❐ Drivers (SPI, I2C, GPIO, SD, USB)
-- **Phase 8** ❐ Shell (pipes, redirection, scripting)
-- **Phase 9** ❐ Userspace (ls, cp, cat, ps, sh)
-- **Phase 10** ❐ Networking (TCP/IP stack)
-- **Phase 11** ❐ Security (users, permissions, capabilities)
-- **Phase 12** ❐ Dev Tools (compiler, linker, debugger)
-- **Phase 13** ❐ Self Hosting
-
-## Known Issues
-
-- `sstatus.SIE` cannot be set in QEMU 10.2 virt machine (`WARL` tied to 0).
-  Timer works via SIP.STIP polling + SBI time extension until root cause is
-  determined. Does not affect LicheeRV Nano hardware target.
-- SageLang v3.9.5 `--emit-c` produces bare-metal-unfriendly code. The C
-  fallback kernel (`fallback_kernel.c`) is the active artifact.
+---
 
 ## License
 
-MIT
+See [LICENSE](LICENSE).
