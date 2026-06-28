@@ -77,6 +77,12 @@ cmd_build() {
         -c "${BUILD_DIR}/kernel.c" \
         -o "${BUILD_DIR}/kernel.o" 2>&1 || warn "Kernel C compilation had issues"
 
+    info "Compiling DTB parser..."
+    $CC -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2 \
+        -I"${SCRIPT_DIR}/kernel" \
+        -c "${SCRIPT_DIR}/kernel/dtb.c" \
+        -o "${BUILD_DIR}/dtb.o" 2>&1 || fail "DTB compilation failed"
+
     ## Step 4: Compile drivers
     info "Compiling drivers..."
     for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
@@ -98,6 +104,7 @@ cmd_build() {
     $LD -T "$link_script" -nostdlib \
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
+        "${BUILD_DIR}/dtb.o" \
         "${drv_objs[@]}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || warn "Link had issues (expected for alpha)"

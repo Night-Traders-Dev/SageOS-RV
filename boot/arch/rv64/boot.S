@@ -10,6 +10,14 @@
     .globl _start
 
 _start:
+    ## Save hart_id (a0) and dtb_addr (a1) from OpenSBI S-mode entry
+    mv   s0, a0
+    mv   s1, a1
+
+    ## Disable MMU — ensure satp = 0 so we run with physical addresses
+    csrw satp, zero
+    sfence.vma
+
     ## Set up stack pointer - use a fixed high address in RAM
     li   sp, 0x81000000
 
@@ -73,7 +81,9 @@ _start:
     addi t0, t0, 8
     j    4b
 5:
-    ## Call kernel main
+    ## Restore hart_id and dtb_addr, then call kernel main
+    mv   a0, s0
+    mv   a1, s1
     call sage_kernel_main
 
     ## Halt

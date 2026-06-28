@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include "sbi.h"
+#include "dtb.h"
 
 /* Forward declarations for freestanding */
 typedef uint64_t size_t;
@@ -19,8 +20,10 @@ static size_t strlen(const char *s);
 /* Volatile tick counter updated by timer interrupt */
 static volatile uint64_t system_ticks = 0;
 
+/* DTB-discovered hardware info (populated at boot) */
+static dtb_info_t hw;
+
 /* UART registers (16550A) */
-#define UART_BASE   0x10000000UL
 #define UART_THR    0
 #define UART_RBR    0
 #define UART_IER    1
@@ -30,8 +33,8 @@ static volatile uint64_t system_ticks = 0;
 #define UART_LSR_THRE 0x20
 #define UART_LSR_DR   0x01
 
-/* Timer frequency (from OpenSBI: aclint-mtimer @ 10000000Hz) */
-#define TIMER_FREQ 10000000UL
+/* Timer frequency (from DTB or default) */
+#define TIMER_FREQ  (hw.timer_freq > 0 ? hw.timer_freq : 10000000UL)
 
 /* Memory-mapped I/O helpers (byte accesses for 8250 UART) */
 static inline void mmio_write(uint64_t addr, uint8_t val) {
@@ -43,16 +46,22 @@ static inline uint8_t mmio_read(uint64_t addr) {
 }
 
 /* UART functions */
+static uint64_t uart_base(void) {
+    return hw.uart_base ? hw.uart_base : 0x10000000UL;
+}
+
 static void uart_init(void) {
-    mmio_write(UART_BASE + UART_IER, 0);     /* Disable interrupts */
-    mmio_write(UART_BASE + UART_FCR, 0xC7);  /* Enable FIFO, clear, 14-byte threshold */
-    mmio_write(UART_BASE + UART_LCR, 0x03);  /* 8N1 */
+    uint64_t base = uart_base();
+    mmio_write(base + UART_IER, 0);     /* Disable interrupts */
+    mmio_write(base + UART_FCR, 0xC7);  /* Enable FIFO, clear, 14-byte threshold */
+    mmio_write(base + UART_LCR, 0x03);  /* 8N1 */
 }
 
 static void uart_putc(char c) {
-    while ((mmio_read(UART_BASE + UART_LSR) & UART_LSR_THRE) == 0)
+    uint64_t base = uart_base();
+    while ((mmio_read(base + UART_LSR) & UART_LSR_THRE) == 0)
         ;
-    mmio_write(UART_BASE + UART_THR, (uint8_t)c);
+    mmio_write(base + UART_THR, (uint8_t)c);
 }
 
 static void uart_puts(const char *s) {
@@ -64,8 +73,9 @@ static void uart_puts(const char *s) {
 }
 
 static int uart_getchar(void) {
-    if (mmio_read(UART_BASE + UART_LSR) & UART_LSR_DR)
-        return mmio_read(UART_BASE + UART_RBR);
+    uint64_t base = uart_base();
+    if (mmio_read(base + UART_LSR) & UART_LSR_DR)
+        return mmio_read(base + UART_RBR);
     return -1;
 }
 
@@ -99,19 +109,79 @@ static void uart_put_dec(uint64_t val) {
     uart_puts(&buf[pos + 1]);
 }
 
-/* Simple memory statistics */
-#define MEM_BASE  0x80200000UL
-#define MEM_SIZE  (128UL * 1024 * 1024)
+/* Memory manager — bitmap-based, 1 bit per 4K page */
 #define PAGE_SIZE 4096UL
+#define PAGE_SHIFT 12
 
+/* Linker symbols — take their address to get the actual value */
+extern char _heap_start[];
+extern char _heap_end[];
+extern char _stack_top[];
+extern char _image_end[];
+
+static uint64_t mem_base;
+static uint64_t mem_size;
 static uint64_t total_pages;
 static uint64_t free_pages;
+static uint64_t *bitmap;
+static uint64_t bitmap_words;
 
-static void pmm_init(void) {
-    total_pages = MEM_SIZE / PAGE_SIZE;
-    free_pages = total_pages - 256; /* Reserve kernel pages */
+static void pmm_mark_used(uint64_t page_idx) {
+    uint64_t word = page_idx / 64;
+    uint64_t bit  = page_idx % 64;
+    bitmap[word] &= ~(1ULL << bit);
+    free_pages--;
 }
 
+static void pmm_mark_free(uint64_t page_idx) {
+    uint64_t word = page_idx / 64;
+    uint64_t bit  = page_idx % 64;
+    bitmap[word] |= (1ULL << bit);
+    free_pages++;
+}
+
+static void pmm_init(void) {
+    mem_base = hw.mem_base ? hw.mem_base : 0x80200000UL;
+    mem_size = hw.mem_size ? hw.mem_size : (128UL * 1024 * 1024);
+    total_pages = mem_size / PAGE_SIZE;
+    free_pages = total_pages;
+    bitmap_words = (total_pages + 63) / 64;
+
+    /* Bitmap sits right after the kernel image (at _heap_start) */
+    bitmap = (uint64_t *)(uint64_t)_heap_start;
+
+    /* Mark all pages free (1 = free) */
+    for (uint64_t i = 0; i < bitmap_words; i++)
+        bitmap[i] = ~0ULL;
+
+    /* Reserve kernel image pages (first ~256) and bitmap itself */
+    uint64_t kernel_pages = 256;
+    uint64_t bitmap_pages = (bitmap_words * 8 + PAGE_SIZE - 1) / PAGE_SIZE;
+    for (uint64_t i = 0; i < kernel_pages + bitmap_pages; i++)
+        pmm_mark_used(i);
+}
+
+static uint64_t pmm_alloc(void) {
+    if (free_pages == 0) return 0;
+    for (uint64_t w = 0; w < bitmap_words; w++) {
+        if (bitmap[w] == 0) continue;
+        uint64_t bit = __builtin_ctzll(bitmap[w]);
+        uint64_t page_idx = w * 64 + bit;
+        if (page_idx < total_pages) {
+            pmm_mark_used(page_idx);
+            return mem_base + page_idx * PAGE_SIZE;
+        }
+    }
+    return 0;
+}
+
+static void pmm_free(uint64_t addr) {
+    uint64_t page_idx = (addr - mem_base) / PAGE_SIZE;
+    if (page_idx < total_pages)
+        pmm_mark_free(page_idx);
+}
+
+/* Linker symbols — take their address to get the actual value */
 /* Shell */
 static int shell_running = 1;
 
@@ -138,16 +208,23 @@ static void cmd_version(void) {
 }
 
 static void cmd_mem(void) {
+    uint64_t used = total_pages - free_pages;
     uart_puts("Memory Statistics:\n");
+    uart_puts("  Base:  ");
+    uart_put_hex(mem_base);
+    uart_puts("\n  Size:  ");
+    uart_put_dec(mem_size / 1024);
+    uart_puts(" KB\n");
     uart_puts("  Total pages: ");
     uart_put_dec(total_pages);
     uart_puts("\n  Free pages:  ");
     uart_put_dec(free_pages);
     uart_puts("\n  Used pages:  ");
-    uart_put_dec(total_pages - free_pages);
-    uart_puts("\n  Total KB:    ");
-    uart_put_dec(total_pages * 4);
-    uart_puts("\n  Free KB:     ");
+    uart_put_dec(used);
+    uart_puts(" (");
+    uart_put_dec(used * 100 / total_pages);
+    uart_puts("%)\n");
+    uart_puts("  Free KB:     ");
     uart_put_dec(free_pages * 4);
     uart_puts("\n\n");
 }
@@ -312,11 +389,14 @@ static void timer_start(void) {
     __asm__ volatile("rdtime %0" : "=r"(time));
     sbi_set_timer(time + TIMER_FREQ / 2);
     __asm__ volatile("csrs sie, %0" :: "r"(0x20));
-    uart_puts("  Timer: SBI @ 10MHz, 500ms\n");
+    uart_puts("SBI @ ");
+    uart_put_dec(TIMER_FREQ / 1000000);
+    uart_puts(" MHz, 500ms\n");
 }
 
 /* Kernel main — called from boot.S */
-void sage_kernel_main(void) {
+/* a0 = hart_id, a1 = DTB address (OpenSBI S-mode convention) */
+void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_init();
 
     uart_puts("\n");
@@ -326,16 +406,35 @@ void sage_kernel_main(void) {
     uart_puts("  RISC-V 64 | QEMU virt\n");
     uart_puts("========================================\n\n");
 
-    uart_puts("[1/6] Console initialized\n");
+    uart_puts("[1/5] Console initialized\n");
 
+    /* Parse device tree to discover hardware */
+    int dtb_ok = dtb_parse(dtb_addr, &hw);
+    if (dtb_ok == 0) {
+        uart_puts("  DTB: ");
+        uart_put_hex(hw.mem_size / 1024);
+        uart_puts(" KB @ ");
+        uart_put_hex(hw.mem_base);
+        uart_puts(", ");
+        uart_put_dec(hw.timer_freq / 1000000);
+        uart_puts(" MHz\n");
+    } else {
+        uart_puts("  DTB: fallback defaults\n");
+    }
+
+    /* Re-init UART in case DTB reported a different base */
+    uart_init();
+
+    uart_puts("[2/5] Memory: ");
     pmm_init();
-    uart_puts("[2/6] Memory: ");
     uart_put_dec(total_pages);
     uart_puts(" pages (");
-    uart_put_dec(MEM_SIZE / 1024);
-    uart_puts(" KB)\n");
+    uart_put_dec(mem_size / 1024);
+    uart_puts(" KB) — ");
+    uart_put_dec(bitmap_words);
+    uart_puts(" bitmap words\n");
 
-    uart_puts("[3/6] Starting timer...\n");
+    uart_puts("[3/5] Timer: ");
     timer_start();
 
     /* Poll until first timer tick to verify timer works */
@@ -360,8 +459,8 @@ void sage_kernel_main(void) {
         }
     }
 
-    uart_puts("[4/6] Device tree (stub)\n");
-    uart_puts("[5/6] Starting shell...\n\n");
+    uart_puts("[4/5] Kernel ready\n");
+    uart_puts("[5/5] Starting shell...\n\n");
 
     shell_main();
 
