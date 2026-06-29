@@ -961,7 +961,16 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                         (MetalValue){MV_STR, {.str_idx = rv_string_intern(vm, "int", 3)}});
                     vm->x[inst.rd] = (MetalValue){MV_DICT, {.dict_idx = d_idx}};
                 } else {
-                    vm->x[inst.rd] = rv_dict_get(vm, vm->global_dict_idx, name_str_idx);
+                    MetalValue gv = rv_dict_get(vm, vm->global_dict_idx, name_str_idx);
+                    if (rv_strcmp(name, "streq") == 0 || rv_strcmp(name, "readline") == 0) {
+                        if (vm->write_char) {
+                            vm->write_char('G'); vm->write_char(':');
+                            rv_print_str(vm, name);
+                            vm->write_char('=');
+                            rv_print_int(vm, gv.type);
+                        }
+                    }
+                    vm->x[inst.rd] = gv;
                 }
                 break;
             }
