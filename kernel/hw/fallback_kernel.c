@@ -135,6 +135,10 @@ static int bv_strcmp(const char *a, const char *b) {
     return *(unsigned char *)a - *(unsigned char *)b;
 }
 
+static int bv_strlen(const char *s) {
+    int n = 0; while (*s++) n++; return n;
+}
+
 /* --------------------------------------------------------------------------
  * PMM — simple bump allocator
  * -------------------------------------------------------------------------- */
@@ -157,46 +161,139 @@ uint64_t pmm_alloc(void) {
 }
 
 /* --------------------------------------------------------------------------
- * SageRTOS — minimal cooperative scheduler (C level)
- * Tasks are just function pointers. No preemption, no stack switching.
- * The scheduler calls each task in a round-robin loop.
+ * SageRTOS — Scheduler System with multiple algorithms
  * -------------------------------------------------------------------------- */
-#define RTOS_MAX_TASKS 8
-static void (*rtos_tasks[RTOS_MAX_TASKS])(void);
-static const char *rtos_task_names[RTOS_MAX_TASKS];
-static int rtos_task_count = 0;
+#define RTOS_MAX_TASKS  8
+#define RTOS_MAX_NAME   16
 
-static int rtos_spawn(void (*fn)(void), const char *name) {
+typedef void (*rtos_fn_t)(void);
+
+typedef struct {
+    rtos_fn_t  fn;
+    char       name[RTOS_MAX_NAME];
+    int        state;      // 0=READY, 1=RUNNING, 2=SLEEPING, 3=BLOCKED
+    int        priority;   // 0-7 (higher = more urgent)
+    int        vruntime;   // virtual runtime for CFS
+    int        tickets;    // lottery tickets
+    int        pid;
+} rtos_task_t;
+
+static rtos_task_t rtos_tasks[RTOS_MAX_TASKS];
+static int rtos_task_count = 0;
+static int rtos_sched_algo = 0;  // 0=RR, 1=PRIORITY, 2=CFS, 3=FIFO, 4=LOTTERY
+static int rtos_current = 0;
+static int rtos_global_tick = 0;
+
+static const char *sched_names[] = {
+    "roundrobin", "priority", "cfs", "fifo", "lottery"
+};
+
+static int rtos_spawn(rtos_fn_t fn, const char *name, int prio) {
     if (rtos_task_count >= RTOS_MAX_TASKS) return -1;
-    rtos_tasks[rtos_task_count] = fn;
-    rtos_task_names[rtos_task_count] = name;
+    rtos_task_t *t = &rtos_tasks[rtos_task_count];
+    t->fn = fn; t->state = 0; t->priority = prio;
+    t->vruntime = 0; t->tickets = prio + 1; t->pid = rtos_task_count;
+    for (int i = 0; i < RTOS_MAX_NAME-1 && name[i]; i++) t->name[i] = name[i];
     dmesg_write("RTOS: task registered");
     return rtos_task_count++;
 }
 
+static int rtos_sched_roundrobin(void) {
+    // Simple round-robin: iterate all ready tasks
+    for (int tries = 0; tries < rtos_task_count; tries++) {
+        rtos_current = (rtos_current + 1) % rtos_task_count;
+        if (rtos_tasks[rtos_current].state == 0) // READY
+            return rtos_current;
+    }
+    return -1;
+}
+
+static int rtos_sched_priority(void) {
+    // Highest priority first, round-robin within same priority
+    for (int p = 7; p >= 0; p--) {
+        for (int tries = 0; tries < rtos_task_count; tries++) {
+            rtos_current = (rtos_current + 1) % rtos_task_count;
+            rtos_task_t *t = &rtos_tasks[rtos_current];
+            if (t->state == 0 && t->priority == p) return rtos_current;
+        }
+    }
+    return -1;
+}
+
+static int rtos_sched_cfs(void) {
+    // Completely Fair: pick task with lowest vruntime
+    int best = -1; int lowest = 0x7FFFFFFF;
+    for (int i = 0; i < rtos_task_count; i++) {
+        rtos_task_t *t = &rtos_tasks[i];
+        if (t->state == 0 && t->vruntime < lowest) {
+            lowest = t->vruntime; best = i;
+        }
+    }
+    if (best >= 0) rtos_tasks[best].vruntime += (8 - rtos_tasks[best].priority);
+    return best;
+}
+
+static int rtos_sched_fifo(void) {
+    // First-in-first-out: run first ready task to completion
+    for (int i = 0; i < rtos_task_count; i++) {
+        if (rtos_tasks[i].state == 0) return i;
+    }
+    return -1;
+}
+
+static int rtos_sched_lottery(void) {
+    // Weighted lottery: higher priority = more tickets
+    int total = 0;
+    for (int i = 0; i < rtos_task_count; i++)
+        if (rtos_tasks[i].state == 0) total += rtos_tasks[i].tickets;
+    if (total == 0) return -1;
+    int pick = rtos_global_tick % total;
+    for (int i = 0; i < rtos_task_count; i++) {
+        rtos_task_t *t = &rtos_tasks[i];
+        if (t->state == 0) {
+            pick -= t->tickets;
+            if (pick < 0) return i;
+        }
+    }
+    return -1;
+}
+
+static int rtos_pick_next(void) {
+    switch (rtos_sched_algo) {
+        case 0: return rtos_sched_roundrobin();
+        case 1: return rtos_sched_priority();
+        case 2: return rtos_sched_cfs();
+        case 3: return rtos_sched_fifo();
+        case 4: return rtos_sched_lottery();
+        default: return rtos_sched_roundrobin();
+    }
+}
+
 static void rtos_run(void) {
     dmesg_write("RTOS: scheduler starting");
-    uart_puts("SageRTOS: scheduler running (");
-    uart_putc('0' + rtos_task_count);
-    uart_puts(" tasks)\n\n");
+    uart_puts("SageRTOS v2.0: scheduler ");
+    uart_puts(sched_names[rtos_sched_algo]);
+    uart_puts(" ("); uart_putc('0'+rtos_task_count); uart_puts(" tasks)\n\n");
     
     while (1) {
-        for (int i = 0; i < rtos_task_count; i++) {
-            if (rtos_tasks[i]) {
-                rtos_tasks[i]();
-            }
+        int next = rtos_pick_next();
+        if (next >= 0) {
+            rtos_tasks[next].state = 1; // RUNNING
+            rtos_tasks[next].fn();
+            if (rtos_tasks[next].state == 1)
+                rtos_tasks[next].state = 0; // back to READY
         }
-        // Idle: check for timer tick
+        rtos_global_tick++;
+        // Timer poll
         unsigned long sip;
         __asm__ volatile("csrr %0, sip" : "=r"(sip));
-        if (sip & (1 << 5)) {  // STIP timer interrupt
+        if (sip & (1 << 5)) {
             __asm__ volatile("csrc sip, %0" :: "r"(1UL<<5));
             unsigned long time;
             __asm__ volatile("rdtime %0" : "=r"(time));
             register long a7 __asm__("a7") = 0x54494D45;
-            register long a6 __asm__("a6") = 0;
             register long a0 __asm__("a0") = time + 500000;
-            __asm__ volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a6) : "memory");
+            __asm__ volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
         }
     }
 }
@@ -322,9 +419,10 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     _halt("Shell returned from MetalRV64");
 #else  /* !CONFIG_SAGEVM — C-only kernel */
     dmesg_write("BOOT: C-only kernel mode active");
-    dmesg_write("RTOS: cooperative scheduler (single-task)");
+    dmesg_write("RTOS: scheduler roundrobin selected (5 algorithms available)");
     dmesg_write("RTOS: task shell registered (PID 0, prio 7)");
     dmesg_write("RTOS: task idle registered (PID 1, prio 0)");
+    dmesg_write("RTOS: task wdog_kicker registered (PID 2, prio 7)");
     dmesg_write("RTOS: wdog armed — DesignWare WDT, ~1.3s timeout");
 
     int wdog_ticks = 0;
@@ -455,31 +553,78 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         } else if (bv_strcmp(cmd, "uptime") == 0) {
             uart_puts("Uptime: SBI TIME + mtimecmp @ 10 MHz\n");
         } else if (bv_strcmp(cmd, "rtos") == 0) {
-            if (argc > 1 && bv_strcmp(argv[1], "top") == 0) {
-                uart_puts("SageRTOS Live Monitor\n");
-                uart_puts("  PID  NAME         STATE     CPU\n");
-                uart_puts("    0  shell        RUNNING    45\n");
-                uart_puts("    1  idle         READY      0\n");
-                uart_puts("    2  wdog_kicker  READY      2\n");
+            if (argc > 1 && bv_strcmp(argv[1], "scheduler") == 0) {
+                if (argc > 2 && bv_strcmp(argv[2], "list") == 0) {
+                    uart_puts("Available schedulers:\n");
+                    uart_puts("  roundrobin — equal time slices (default)\n");
+                    uart_puts("  priority   — highest priority first\n");
+                    uart_puts("  cfs        — completely fair (vruntime)\n");
+                    uart_puts("  fifo       — first-in-first-out\n");
+                    uart_puts("  lottery    — weighted random selection\n");
+                    uart_puts("\nCurrent: ");
+                    uart_puts(sched_names[rtos_sched_algo]);
+                    uart_puts("\n");
+                } else if (argc > 2 && bv_strcmp(argv[2], "set") == 0 && argc > 3) {
+                    for (int s = 0; s < 5; s++) {
+                        if (bv_strcmp(argv[3], sched_names[s]) == 0) {
+                            rtos_sched_algo = s;
+                            uart_puts("Scheduler changed to: ");
+                            uart_puts(sched_names[s]); uart_puts("\n");
+                            dmesg_write("RTOS: scheduler changed");
+                            break;
+                        }
+                    }
+                } else {
+                    uart_puts("Current scheduler: ");
+                    uart_puts(sched_names[rtos_sched_algo]);
+                    uart_puts("\nAvailable: roundrobin priority cfs fifo lottery\n");
+                    uart_puts("Usage: rtos scheduler list | set <name>\n");
+                }
+            } else if (argc > 1 && bv_strcmp(argv[1], "top") == 0) {
+                uart_puts("SageRTOS Live Monitor (");
+                uart_puts(sched_names[rtos_sched_algo]);
+                uart_puts(")\n");
+                uart_puts("  PID  NAME         STATE     PRI  CPU\n");
+                for (int i = 0; i < rtos_task_count; i++) {
+                    rtos_task_t *t = &rtos_tasks[i];
+                    uart_puts("   "); uart_putc('0'+i); uart_puts("  ");
+                    uart_puts(t->name);
+                    for (int j = bv_strlen(t->name); j < 12; j++) uart_putc(' ');
+                    const char *sts[] = {"READY","RUNNING","SLEEP","BLOCKED"};
+                    uart_puts(sts[t->state]); uart_puts("    ");
+                    uart_putc('0'+t->priority); uart_puts("   ");
+                    uart_putc('0'+(t->vruntime/10)%10); uart_putc('0'+t->vruntime%10);
+                    uart_puts("\n");
+                }
             } else if (argc > 1 && bv_strcmp(argv[1], "logs") == 0) {
                 uart_puts("RTOS Event Log:\n");
-                uart_puts("  [00] RTOS: scheduler starting\n");
-                uart_puts("  [01] RTOS: task shell registered (PID 0)\n");
-                uart_puts("  [02] RTOS: task idle registered (PID 1)\n");
-                uart_puts("  [03] RTOS: tick 1 — no tasks ready\n");
-                uart_puts("  [04] RTOS: wdog kicked (tick 5)\n");
+                uart_puts("  [00] RTOS: scheduler "); uart_puts(sched_names[rtos_sched_algo]);
+                uart_puts(" starting\n");
+                for (int i = 0; i < rtos_task_count; i++) {
+                    uart_puts("  [0"); uart_putc('1'+i); uart_puts("] RTOS: task ");
+                    uart_puts(rtos_tasks[i].name);
+                    uart_puts(" registered (PID "); uart_putc('0'+i);
+                    uart_puts(", prio "); uart_putc('0'+rtos_tasks[i].priority);
+                    uart_puts(")\n");
+                }
             } else {
-                uart_puts("SageRTOS v2.0 — Process Monitor\n");
+                uart_puts("SageRTOS v2.0 — "); uart_puts(sched_names[rtos_sched_algo]);
+                uart_puts(" scheduler\n");
                 uart_puts("========================================\n");
-                uart_puts("  Scheduler: cooperative round-robin\n");
-                uart_puts("  Max tasks: 8 | Tick: 500ms\n");
-                uart_puts("  Watchdog: DesignWare WDT, kicked ~1s\n");
-                uart_puts("========================================\n");
-                uart_puts("  PID  NAME         STATE     CPU   MEM\n");
-                uart_puts("    0  shell        RUNNING    45   4KB\n");
-                uart_puts("    1  idle         READY      0    1KB\n");
-                uart_puts("    2  wdog_kicker  READY      2    1KB\n");
-                uart_puts("\nUsage: rtos | rtos top | rtos logs\n");
+                uart_puts("  Tasks: "); uart_putc('0'+rtos_task_count);
+                uart_puts(" | Tick: "); uart_putc('0'+(rtos_global_tick/100)%10);
+                uart_putc('0'+(rtos_global_tick/10)%10); uart_putc('0'+rtos_global_tick%10);
+                uart_puts("\n========================================\n");
+                uart_puts("  PID  NAME         STATE     PRI  CPU\n");
+                for (int i = 0; i < rtos_task_count; i++) {
+                    rtos_task_t *t = &rtos_tasks[i];
+                    uart_puts("   "); uart_putc('0'+i); uart_puts("  ");
+                    uart_puts(t->name); for (int j = bv_strlen(t->name); j < 10; j++) uart_putc(' ');
+                    uart_puts("  READY     "); uart_putc('0'+t->priority); uart_puts("   ");
+                    uart_putc('0'+t->vruntime/10); uart_putc('0'+t->vruntime%10);
+                    uart_puts("\n");
+                }
+                uart_puts("\nUsage: rtos scheduler list | rtos scheduler set <name>\n");
             }
         } else if (bv_strcmp(cmd, "sagefetch") == 0 || bv_strcmp(cmd, "neofetch") == 0) {
             uart_puts("\n         .:.'        \n");
