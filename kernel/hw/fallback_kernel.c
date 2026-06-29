@@ -157,6 +157,51 @@ uint64_t pmm_alloc(void) {
 }
 
 /* --------------------------------------------------------------------------
+ * SageRTOS — minimal cooperative scheduler (C level)
+ * Tasks are just function pointers. No preemption, no stack switching.
+ * The scheduler calls each task in a round-robin loop.
+ * -------------------------------------------------------------------------- */
+#define RTOS_MAX_TASKS 8
+static void (*rtos_tasks[RTOS_MAX_TASKS])(void);
+static const char *rtos_task_names[RTOS_MAX_TASKS];
+static int rtos_task_count = 0;
+
+static int rtos_spawn(void (*fn)(void), const char *name) {
+    if (rtos_task_count >= RTOS_MAX_TASKS) return -1;
+    rtos_tasks[rtos_task_count] = fn;
+    rtos_task_names[rtos_task_count] = name;
+    dmesg_write("RTOS: task registered");
+    return rtos_task_count++;
+}
+
+static void rtos_run(void) {
+    dmesg_write("RTOS: scheduler starting");
+    uart_puts("SageRTOS: scheduler running (");
+    uart_putc('0' + rtos_task_count);
+    uart_puts(" tasks)\n\n");
+    
+    while (1) {
+        for (int i = 0; i < rtos_task_count; i++) {
+            if (rtos_tasks[i]) {
+                rtos_tasks[i]();
+            }
+        }
+        // Idle: check for timer tick
+        unsigned long sip;
+        __asm__ volatile("csrr %0, sip" : "=r"(sip));
+        if (sip & (1 << 5)) {  // STIP timer interrupt
+            __asm__ volatile("csrc sip, %0" :: "r"(1UL<<5));
+            unsigned long time;
+            __asm__ volatile("rdtime %0" : "=r"(time));
+            register long a7 __asm__("a7") = 0x54494D45;
+            register long a6 __asm__("a6") = 0;
+            register long a0 __asm__("a0") = time + 500000;
+            __asm__ volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a6) : "memory");
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------
  * Linker symbols — embedded .sgvm blobs
  * -------------------------------------------------------------------------- */
 extern const uint8_t _binary_shell_shell_sgvm_start[];
@@ -277,10 +322,12 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     _halt("Shell returned from MetalRV64");
 #else  /* !CONFIG_SAGEVM — C-only kernel */
     dmesg_write("BOOT: C-only kernel mode active");
+    dmesg_write("RTOS: cooperative scheduler (single-task)");
+
+    int wdog_ticks = 0;
     uart_puts("[SageOS] C-only kernel active\n");
     uart_puts("[SageOS] Type 'help' for commands\n\n");
 
-    /* Simple C shell loop */
     while (1) {
         uart_puts("sage# ");
         char buf[256]; int pos = 0;
@@ -327,6 +374,13 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             uart_puts(buf); uart_puts(": command not found\n");
         }
         uart_puts("\n");
+
+        // Periodic watchdog kick (every ~10 commands)
+        wdog_ticks++;
+        if (wdog_ticks >= 10) {
+            *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
+            wdog_ticks = 0;
+        }
     }
 #endif
 }
