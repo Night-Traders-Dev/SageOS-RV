@@ -834,9 +834,9 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                 func_obj);
                             vm->x[10] = (MetalValue){MV_DICT, {.dict_idx = d_idx}};
                         } else if (rv_strcmp(b_name, "streq") == 0) {
-                            // streq(a, b): compare two strings, return 1 if equal, 0 if not
                             MetalValue a = vm->x[10];
                             MetalValue b = vm->x[11];
+                            if (vm->write_char) { vm->write_char('{'); vm->write_char('s'); vm->write_char('}'); }
                             int eq = 0;
                             if (a.type == MV_STR && b.type == MV_STR) {
                                 const char *sa = rv_string_get(vm, a.as.str_idx);
