@@ -1,97 +1,172 @@
-## kernel/vmm.sage — Virtual Memory Manager
+## kernel/vmm.sage — Pure-Sage Virtual Memory Manager (SV39)
 ##
-## RISC-V 64 SV39 page table management.
-## Three-level page table: L2 (root) -> L1 -> L0 -> 4KB pages
+## RISC-V 64 SV39 three-level page table management.
+## Ported from kernel/hw/vmm.c (90 lines of C).
+##
+## Architecture:
+##   VPN[2] (bits 38:30) → Root table (L2)
+##   VPN[1] (bits 29:21) → Middle table (L1)
+##   VPN[0] (bits 20:12) → Leaf table (L0) → 4KB physical page
+##
+## All page table entries are 64-bit, stored in 4KB tables (512 entries each).
+## Access via mem_read/mem_write builtins for direct physical address access.
 
 let PAGE_SIZE = 4096
 let PAGE_SHIFT = 12
+let PTE_SIZE = 8
+let PTE_PER_TABLE = 512
 
-## SV39 paging constants
-let VPN_BITS = 9
-let PTE_BITS = 10
+## SV39 address extraction
+let VPN2_SHIFT = 30
+let VPN1_SHIFT = 21
+let VPN0_SHIFT = 12
+let VPN_MASK   = 0x1FF
+
+## PTE flags (bits 9:0)
+let PTE_V = 1 << 0
+let PTE_R = 1 << 1
+let PTE_W = 1 << 2
+let PTE_X = 1 << 3
+let PTE_U = 1 << 4
+let PTE_G = 1 << 5
+let PTE_A = 1 << 6
+let PTE_D = 1 << 7
+
+## PTE_PPN_SHIFT = 10 (bits 10+ are physical page number)
 let PTE_PPN_SHIFT = 10
 
-## Page table entry flags
-let PTE_V = 1 << 0    ## Valid
-let PTE_R = 1 << 1    ## Readable
-let PTE_W = 1 << 2    ## Writable
-let PTE_X = 1 << 3    ## Executable
-let PTE_U = 1 << 4    ## User-accessible
-let PTE_G = 1 << 5    ## Global
-let PTE_A = 1 << 6    ## Accessed
-let PTE_D = 1 << 7    ## Dirty
+## SATP mode (SV39 = 8)
+let SATP_MODE_SV39 = 8
 
-## Page table root (L2)
-let root_table = nil
+## --- Page allocator reference (from pmm.sage) ---
+## pmm_alloc() returns physical address of a zeroed 4KB page
+
 let root_table_phys = 0
 
-## Initialize VMM
-## Creates identity mapping for kernel space
+## --- PTE Helpers ---
+
+proc make_pte(ppn, flags):
+    ## Build a 64-bit page table entry from PPN and flags
+    return (ppn << PTE_PPN_SHIFT) | (flags & 0x3FF)
+
+proc pte_ppn(pte):
+    ## Extract physical page number from PTE
+    return pte >> PTE_PPN_SHIFT
+
+proc pte_is_valid(pte):
+    return (pte & PTE_V) != 0
+
+proc pte_is_leaf(pte):
+    ## A leaf PTE has R, W, or X set
+    return (pte & (PTE_R | PTE_W | PTE_X)) != 0
+
+## --- Page Table Walker ---
+
+proc table_read(table_phys, index):
+    ## Read PTE at table_phys[index]
+    return mem_read(table_phys + (index * PTE_SIZE), PTE_SIZE)
+
+proc table_write(table_phys, index, pte):
+    ## Write PTE to table_phys[index]
+    mem_write(table_phys + (index * PTE_SIZE), pte, PTE_SIZE)
+
+## --- VMM Init ---
+
 proc vmm_init():
-    ## Allocate root page table from PMM
     root_table_phys = pmm_alloc()
     if root_table_phys == 0:
         return false
 
-    ## Identity map first 2MB of kernel space
-    ## This covers the kernel image
+    ## Identity-map first 2MB of kernel space
     vmm_identity_map(0x80200000, 0x80400000, PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
 
-    ## Map UART (MMIO)
+    ## Map UART MMIO
     vmm_map_page(0x10000000, 0x10000000, PTE_V | PTE_R | PTE_W | PTE_G)
 
     return true
 
-## Identity map a range (virtual == physical)
+## --- Map/Unmap ---
+
+proc vmm_map_page(vaddr, paddr, flags):
+    ## Extract VPN levels
+    let vpn2 = (vaddr >> VPN2_SHIFT) & VPN_MASK
+    let vpn1 = (vaddr >> VPN1_SHIFT) & VPN_MASK
+    let vpn0 = (vaddr >> VPN0_SHIFT) & VPN_MASK
+
+    ## Build PTE
+    let ppn = paddr >> PAGE_SHIFT
+    let pte = make_pte(ppn, flags)
+
+    ## Walk from root table (L2)
+    let l2_pte = table_read(root_table_phys, vpn2)
+    if not pte_is_valid(l2_pte):
+        ## Allocate L1 table
+        let l1_phys = pmm_alloc()
+        if l1_phys == 0:
+            return false
+        l2_pte = make_pte(l1_phys >> PAGE_SHIFT, PTE_V)
+        table_write(root_table_phys, vpn2, l2_pte)
+
+    let l1_phys = pte_ppn(l2_pte) << PAGE_SHIFT
+
+    ## Walk L1 table
+    let l1_pte = table_read(l1_phys, vpn1)
+    if not pte_is_valid(l1_pte):
+        ## Allocate L0 table
+        let l0_phys = pmm_alloc()
+        if l0_phys == 0:
+            return false
+        l1_pte = make_pte(l0_phys >> PAGE_SHIFT, PTE_V)
+        table_write(l1_phys, vpn1, l1_pte)
+
+    let l0_phys = pte_ppn(l1_pte) << PAGE_SHIFT
+
+    ## Write leaf PTE at L0
+    table_write(l0_phys, vpn0, pte)
+    return true
+
+proc vmm_unmap_page(vaddr):
+    let vpn2 = (vaddr >> VPN2_SHIFT) & VPN_MASK
+    let vpn1 = (vaddr >> VPN1_SHIFT) & VPN_MASK
+    let vpn0 = (vaddr >> VPN0_SHIFT) & VPN_MASK
+
+    let l2_pte = table_read(root_table_phys, vpn2)
+    if not pte_is_valid(l2_pte):
+        return
+
+    let l1_phys = pte_ppn(l2_pte) << PAGE_SHIFT
+    let l1_pte = table_read(l1_phys, vpn1)
+    if not pte_is_valid(l1_pte):
+        return
+
+    let l0_phys = pte_ppn(l1_pte) << PAGE_SHIFT
+    table_write(l0_phys, vpn0, 0)
+
 proc vmm_identity_map(vaddr_start, vaddr_end, flags):
     let addr = vaddr_start
     while addr < vaddr_end:
         vmm_map_page(addr, addr, flags)
         addr = addr + PAGE_SIZE
 
-## Map a single virtual page to a physical page
-proc vmm_map_page(vaddr, paddr, flags):
-    ## Extract VPN levels from virtual address
-    let vpn2 = (vaddr >> 30) & 0x1FF
-    let vpn1 = (vaddr >> 21) & 0x1FF
-    let vpn0 = (vaddr >> 12) & 0x1FF
-
-    ## Extract PPN from physical address
-    let ppn = paddr >> PAGE_SHIFT
-
-    ## Create PTE: PPN shifted + flags
-    let pte = (ppn << PTE_PPN_SHIFT) | flags
-
-    ## In real implementation, we would:
-    ## 1. Walk the page table from root
-    ## 2. Allocate intermediate tables as needed
-    ## 3. Write the PTE at the leaf level
-    ## For now, this is a simulation
-    pass
-
-## Unmap a virtual page
-proc vmm_unmap_page(vaddr):
-    let vpn2 = (vaddr >> 30) & 0x1FF
-    let vpn1 = (vaddr >> 21) & 0x1FF
-    let vpn0 = (vaddr >> 12) & 0x1FF
-    ## Walk table and clear PTE
-    pass
-
-## Translate virtual to physical address
 proc vmm_translate(vaddr):
-    ## Walk page tables to find physical address
-    ## For identity-mapped regions, vaddr == paddr
-    return vaddr
+    let vpn2 = (vaddr >> VPN2_SHIFT) & VPN_MASK
+    let vpn1 = (vaddr >> VPN1_SHIFT) & VPN_MASK
+    let vpn0 = (vaddr >> VPN0_SHIFT) & VPN_MASK
 
-## Create a new address space (for processes)
-proc vmm_create_space():
-    let table_phys = pmm_alloc()
-    if table_phys == 0:
+    let offset = vaddr & (PAGE_SIZE - 1)
+
+    let l2_pte = table_read(root_table_phys, vpn2)
+    if not pte_is_valid(l2_pte):
         return 0
-    ## Copy kernel mappings to new table
-    ## Return the new root table physical address
-    return table_phys
 
-## Destroy an address space
-proc vmm_destroy_space(table_phys):
-    pmm_free(table_phys)
+    let l1_phys = pte_ppn(l2_pte) << PAGE_SHIFT
+    let l1_pte = table_read(l1_phys, vpn1)
+    if not pte_is_valid(l1_pte):
+        return 0
+
+    let l0_phys = pte_ppn(l1_pte) << PAGE_SHIFT
+    let l0_pte = table_read(l0_phys, vpn0)
+    if not pte_is_valid(l0_pte):
+        return 0
+
+    return (pte_ppn(l0_pte) << PAGE_SHIFT) | offset
