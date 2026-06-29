@@ -1,19 +1,22 @@
-## drivers/licheerv.sage — LicheeRV Nano Board Support Package
+## drivers/licheerv.sage — LicheeRV Nano W Board Support Package
 ##
-## Master driver include for the LicheeRV Nano (Sophgo SG2002).
+## Master driver include for the LicheeRV Nano W (Sophgo SG2002 + AIC8800).
 ## Imports all peripheral drivers and provides board init.
 ##
 ## Usage:
 ##   import licheerv
 ##   licheerv.board_init()     — Initialize all peripherals
+##   licheerv.wifi_init()      — Initialize AIC8800 WiFi 6
 ##   licheerv.print_board_info() — Print board identification
 
 ## Board identification
-let BOARD_NAME    = "LicheeRV Nano"
+let BOARD_NAME    = "LicheeRV Nano W"
 let BOARD_SOC     = "Sophgo SG2002"
 let BOARD_CPU     = "T-Head C906 (rv64imafdc)"
 let BOARD_RAM_MB  = 256
 let BOARD_TIMER_HZ = 25000000
+let BOARD_WIFI    = "AIC8800D (WiFi 6 + BT 5.2)"
+let BOARD_WIFI_IF = "SDIO 2.0"
 
 ## --- Peripheral base addresses ---
 let UART_BASE     = 0x04140000
@@ -23,20 +26,23 @@ let GPIO1_BASE    = 0x03021000
 let I2C0_BASE     = 0x04000000
 let I2C1_BASE     = 0x04010000
 let SPI0_BASE     = 0x04180000
+let SDIO_BASE     = 0x04300000
 let WDT_BASE      = 0x03010000
 let SYSCON_BASE   = 0x03001000
 
 ## --- Board Init ---
 
 proc board_init():
-    print("[INIT] LicheeRV Nano Board Support Package\n")
+    print("[INIT] LicheeRV Nano W Board Support Package\n")
     print("  SoC:     Sophgo SG2002\n")
-    print("  CPU:     C906 @ 1 GHz\n")
+    print("  CPU:     C906 @ 1 GHz (rv64imafdc)\n")
     print("  RAM:     256 MB DDR3\n")
+    print("  WiFi:    AIC8800D (WiFi 6 + BT 5.2)\n")
     print("  UART:    16550A @ 0x04140000\n")
     print("  GPIO:    4 banks (128 pins)\n")
     print("  I2C:     3 controllers\n")
     print("  SPI:     2 controllers\n")
+    print("  SDIO:    Host @ 0x04300000\n")
     print("\n")
     
     ## Initialize UART (console should already be up)
@@ -47,6 +53,12 @@ proc board_init():
     plic_enable_uart(PLIC_BASE)
     
     print("[OK] Board initialization complete.\n")
+
+proc wifi_init():
+    print("[WIFI] Initializing AIC8800 WiFi 6...\n")
+    wifi_init(aic_backend)
+    aic_wifi_print_info()
+    print("[OK] WiFi ready.\n")
 
 proc print_board_info():
     print("========================================\n")
@@ -62,6 +74,9 @@ proc print_board_info():
     print("  RAM:     ")
     print(BOARD_RAM_MB)
     print(" MB\n")
+    print("  WiFi:    ")
+    print(BOARD_WIFI)
+    print("\n")
     print("========================================\n")
 
 ## --- Onboard LED ---
