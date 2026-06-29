@@ -100,7 +100,7 @@ BM_CFLAGS="${BM_ARCH} -nostdlib -ffreestanding -O2"
 BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_STACK_TOP=${STACK_TOP} -DCONFIG_TIMER_FREQ=${TIMER_FREQ}"
 
 ## SageVM optional layer
-if [ "${SAGEVM_ENABLED:-1}" != "0" ]; then
+if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
     BM_DEFS="$BM_DEFS -DCONFIG_SAGEVM"
 fi
 
@@ -238,7 +238,7 @@ compile_metalvm() {
 ## sgvm compile helpers
 ## ---------------------------------------------------------------------------
 compile_kernel_sgvm() {
-    if [ "${SAGEVM_ENABLED:-1}" = "0" ]; then
+    if [ "${SAGEVM_ENABLED:-0}" != "1" ]; then
         warn "SageVM disabled — skipping kernel .sgvm compilation"
         return 0
     fi
@@ -253,7 +253,7 @@ compile_kernel_sgvm() {
 }
 
 compile_shell_sgvm() {
-    if [ "${SAGEVM_ENABLED:-1}" = "0" ]; then
+    if [ "${SAGEVM_ENABLED:-0}" != "1" ]; then
         warn "SageVM disabled — skipping shell .sgvm compilation"
         return 0
     fi
@@ -378,7 +378,7 @@ cmd_build() {
 
     ## 3. Embed blobs (skip if SageVM disabled)
     local kernel_sgvm_obj="" shell_sgvm_obj=""
-    if [ "${SAGEVM_ENABLED:-1}" != "0" ]; then
+if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
         kernel_sgvm_obj=$(embed_kernel_sgvm)
         shell_sgvm_obj=$(embed_shell_sgvm)
     fi

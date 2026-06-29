@@ -65,6 +65,11 @@ static void uart_puts(const char *s) {
     while (*s) uart_putc(*s++);
 }
 
+static int bv_strcmp(const char *a, const char *b) {
+    while (*a && *a == *b) { a++; b++; }
+    return *(unsigned char *)a - *(unsigned char *)b;
+}
+
 /* --------------------------------------------------------------------------
  * PMM — simple bump allocator
  * -------------------------------------------------------------------------- */
@@ -205,21 +210,34 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     /* Simple C shell loop */
     while (1) {
         uart_puts("sage# ");
-        int c = uart_getchar();
-        if (c < 0) { __asm__ volatile("wfi"); continue; }
-        if (c == '\n' || c == '\r') continue;
-        uart_putc((char)c);
-        /* Echo loop */
-        while (1) {
-            int c2 = uart_getchar();
-            if (c2 < 0) { __asm__ volatile("wfi"); continue; }
-            if (c2 == '\n' || c2 == '\r') break;
-            if (c2 == '\b' || c2 == 127) { uart_puts("\b \b"); continue; }
-            uart_putc((char)c2);
+        char buf[256]; int pos = 0;
+        while (pos < 255) {
+            int c = uart_getchar();
+            if (c < 0) { __asm__ volatile("wfi"); continue; }
+            if (c == '\n' || c == '\r') break;
+            if (c == '\b' || c == 127) { if (pos > 0) pos--; continue; }
+            buf[pos++] = (char)c;
+            uart_putc((char)c);
         }
-        uart_puts("\nYou typed: ");
-        uart_putc((char)c);
-        uart_puts("\n\n");
+        buf[pos] = '\0';
+        uart_puts("\n");
+        /* Simple command dispatch */
+        if (bv_strcmp(buf, "help") == 0) {
+            uart_puts("Commands: help version about clear mem halt\n");
+        } else if (bv_strcmp(buf, "version") == 0) {
+            uart_puts("SageOS-RV v0.3.0  RISC-V 64  C-Only Kernel\n");
+        } else if (bv_strcmp(buf, "about") == 0) {
+            uart_puts("SageOS-RV: Pure Sage OS for RISC-V 64\n");
+        } else if (bv_strcmp(buf, "clear") == 0) {
+            uart_puts("\e[2J\e[H");
+        } else if (bv_strcmp(buf, "mem") == 0) {
+            uart_puts("Memory: 256 pages, 1 MiB, PMM bump allocator\n");
+        } else if (bv_strcmp(buf, "halt") == 0) {
+            uart_puts("Halting...\n"); break;
+        } else if (buf[0] != '\0') {
+            uart_puts("Unknown: "); uart_puts(buf); uart_puts("\n");
+        }
+        uart_puts("\n");
     }
 #endif
 }

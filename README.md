@@ -38,8 +38,8 @@ SageOS-RV uses a layered architecture with optional SageVM runtime:
 
 | Mode | Build | Description |
 |---|---|---|
-| Full SageVM | `./sagemake build` | Sage kernel → MetalRV64VM → Sage shell with `readline()` |
-| C-only | `SAGEVM_ENABLED=0 ./sagemake build` | Direct C kernel with UART echo loop (no Sage dependency) |
+| C-only (default) | `./sagemake build` | Direct C kernel with UART echo loop — fast build, no SageVM dependency |
+| Full SageVM | `SAGEVM=1 ./sagemake build` | Sage kernel → MetalRV64VM → Sage shell with `readline()` |
 
 ### Compilation Flow
 
@@ -79,14 +79,14 @@ sudo apt install qemu-system-misc opensbi
 git clone --recurse-submodules https://github.com/Night-Traders-Dev/SageOS-RV
 cd SageOS-RV
 
-./sagemake build          # full SageVM build
-./sagemake qemu           # boot in QEMU (interactive shell)
+./sagemake build          # C-only kernel (default, fast)
+./sagemake qemu           # boot in QEMU
+
+# Full SageVM build:
+SAGEVM=1 ./sagemake build
 
 # Board-specific builds:
 BOARD=licheerv-nano ./sagemake build
-
-# C-only (no SageVM dependency):
-SAGEVM_ENABLED=0 ./sagemake build
 ```
 
 ### Expected Boot Output
@@ -138,7 +138,7 @@ Commands: help version about clear dmesg ls mem ps halt
 | `version` | Print toolchain versions |
 
 Board selection: `BOARD=licheerv-nano ./sagemake build`  
-SageVM disable: `SAGEVM_ENABLED=0 ./sagemake build`
+SageVM enable: `SAGEVM=1 ./sagemake build`
 
 ---
 
