@@ -6,6 +6,26 @@
 // Compiles with: -ffreestanding -nostdlib -DSAGE_BARE_METAL -DSAGE_METAL_VM
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// Freestanding stdint shim — GCC's -ffreestanding does NOT guarantee
+// <stdint.h> is available from libc; use the compiler-provided one instead.
+// ---------------------------------------------------------------------------
+#ifdef __GNUC__
+#  include <stdint.h>   /* GCC always provides this even with -ffreestanding */
+#else
+/* Fallback manual definitions for non-GCC toolchains */
+typedef signed   char      int8_t;
+typedef unsigned char      uint8_t;
+typedef signed   short     int16_t;
+typedef unsigned short     uint16_t;
+typedef signed   int       int32_t;
+typedef unsigned int       uint32_t;
+typedef signed   long long int64_t;
+typedef unsigned long long uint64_t;
+#define INT64_MAX  ((int64_t)0x7FFFFFFFFFFFFFFFLL)
+#define INT64_MIN  ((int64_t)0x8000000000000000LL)
+#endif
+
 #ifdef SAGELANG_METAL_VM_H_PATH
 #  include SAGELANG_METAL_VM_H_PATH
 #else
@@ -68,6 +88,21 @@ static int64_t fp_from_ieee754(uint64_t bits) {
     }
     return sign > 0 ? result : -result;
 }
+
+// ---------------------------------------------------------------------------
+// Value constructors — forward-declared here so bm_print_fixed, load_binary,
+// and metal_vm_step can all call mv_num_fp / mv_num before their definitions.
+// ---------------------------------------------------------------------------
+static MetalValue mv_nil_impl(void);
+static MetalValue mv_num_fp_impl(int64_t fp);
+static MetalValue mv_num_impl(int64_t i);
+static MetalValue mv_bool_impl(int b);
+
+// Convenience aliases used throughout the file
+#define mv_nil()      mv_nil_impl()
+#define mv_num_fp(x)  mv_num_fp_impl(x)
+#define mv_num(x)     mv_num_impl(x)
+#define mv_bool(x)    mv_bool_impl(x)
 
 // ---------------------------------------------------------------------------
 // Freestanding helpers (no string.h, no stdlib.h)
@@ -266,26 +301,32 @@ int metal_vm_add_constant(MetalVM *vm, MetalValue value) {
 }
 
 // ---------------------------------------------------------------------------
-// Value constructors
+// Value constructors — actual definitions (macros above forward them here)
 // ---------------------------------------------------------------------------
 
-MetalValue mv_nil(void) {
+static MetalValue mv_nil_impl(void) {
     MetalValue v; v.type = MV_NIL; v.as.number = 0; return v;
 }
 
 // Construct from raw Q32.32 integer
-MetalValue mv_num_fp(int64_t fp) {
+static MetalValue mv_num_fp_impl(int64_t fp) {
     MetalValue v; v.type = MV_NUM; v.as.number = fp; return v;
 }
 
 // Convenience: construct from plain C integer
-MetalValue mv_num(int64_t i) {
-    return mv_num_fp(fp_from_int(i));
+static MetalValue mv_num_impl(int64_t i) {
+    return mv_num_fp_impl(fp_from_int(i));
 }
 
-MetalValue mv_bool(int b) {
+static MetalValue mv_bool_impl(int b) {
     MetalValue v; v.type = MV_BOOL; v.as.boolean = b ? 1 : 0; return v;
 }
+
+/* Public (non-static) wrappers keep the external API symbols intact */
+MetalValue mv_nil(void)           { return mv_nil_impl(); }
+MetalValue mv_num_fp(int64_t fp)  { return mv_num_fp_impl(fp); }
+MetalValue mv_num(int64_t i)      { return mv_num_impl(i); }
+MetalValue mv_bool(int b)         { return mv_bool_impl(b); }
 
 MetalValue mv_ptr(void *p) {
     MetalValue v; v.type = MV_PTR; v.as.ptr = p; return v;
@@ -405,7 +446,7 @@ void metal_print_value(MetalVM *vm, MetalValue value) {
     case MV_NUM:  bm_print_fixed(vm, value.as.number); break;
     case MV_STR:  { const char *s = metal_string_get(vm, value.as.str_idx);
                     while (*s) vm->write_char(*s++); break; }
-    case MV_PTR:  { const char *pfx = "<ptr:0x"; while (*pfx) vm->write_char(*pfx++);
+    case MV_PTR:  { const char *pfx = "<ptr:0x>"; while (*pfx) vm->write_char(*pfx++);
                     unsigned long addr = (unsigned long)(unsigned long long)value.as.ptr;
                     char buf[18]; int i = 0;
                     if (addr == 0) { vm->write_char('0'); }
