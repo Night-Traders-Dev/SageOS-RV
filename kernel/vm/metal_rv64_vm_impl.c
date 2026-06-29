@@ -806,28 +806,23 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                         } else if (rv_strcmp(b_name, "readline") == 0 ||
                                    rv_strcmp(b_name, "input") == 0 ||
                                    rv_strcmp(b_name, "read") == 0) {
-                            if (vm->write_char) vm->write_char('<');
                             char buf[256];
                             int pos = 0;
                             while (pos < 255) {
                                 int c = vm->read_char ? vm->read_char() : -1;
                                 if (c < 0) continue;
-                                if (vm->write_char) vm->write_char('*');
                                 if (c == '\n' || c == '\r') break;
                                 if (c == '\b' || c == 127) {
                                     if (pos > 0) pos--;
                                     continue;
                                 }
                                 buf[pos++] = (char)c;
+                                if (vm->write_char) vm->write_char((char)c);
                             }
                             buf[pos] = '\0';
-                            if (vm->write_char) {
-                                vm->write_char('!');
-                                rv_print_int(vm, pos);
-                            }
+                            if (pos > 0 && vm->write_char) vm->write_char('\n');
                             int str_idx = rv_string_intern(vm, buf, pos);
                             vm->x[10] = (MetalValue){MV_STR, {.str_idx = str_idx}};
-                            if (vm->write_char) vm->write_char('>');
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
                             rv_dict_set(vm, d_idx,
