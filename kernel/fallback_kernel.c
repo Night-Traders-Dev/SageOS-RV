@@ -121,6 +121,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         metal_rv64_vm_init(&kernel_vm);
         kernel_vm.write_char = uart_putc;
         kernel_vm.read_char  = uart_getchar;
+        metal_rv64_vm_register_kernel_builtins(&kernel_vm);
 
         int err = metal_rv64_vm_load_binary(&kernel_vm, kblob, ksz);
         if (err == 0) {
@@ -147,6 +148,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     metal_rv64_vm_init(&rv64_vm);
     rv64_vm.write_char = uart_putc;
     rv64_vm.read_char  = uart_getchar;
+    metal_rv64_vm_register_kernel_builtins(&rv64_vm);
 
     int err = metal_rv64_vm_load_binary(&rv64_vm, sblob, ssz);
     if (err != 0)

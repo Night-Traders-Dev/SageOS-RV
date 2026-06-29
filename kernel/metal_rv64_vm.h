@@ -242,6 +242,9 @@ int metal_rv64_vm_load_binary(MetalRV64VM* vm, const unsigned char* data, int si
 // Register a name as a built-in function in the global namespace
 void metal_rv64_vm_register_builtin(MetalRV64VM* vm, const char* name);
 
+// Register all kernel built-ins (mem_write, mem_read, push, len, array, readline, etc.)
+void metal_rv64_vm_register_kernel_builtins(MetalRV64VM* vm);
+
 // Execute until halt or error
 int metal_rv64_vm_run(MetalRV64VM* vm);
 

@@ -339,6 +339,21 @@ void metal_rv64_vm_register_builtin(MetalRV64VM *vm, const char *name) {
         (MetalValue){MV_DICT, {.dict_idx = d_idx}});
 }
 
+void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
+    metal_rv64_vm_register_builtin(vm, "mem_write");
+    metal_rv64_vm_register_builtin(vm, "mem_read");
+    metal_rv64_vm_register_builtin(vm, "pass");
+    metal_rv64_vm_register_builtin(vm, "push");
+    metal_rv64_vm_register_builtin(vm, "len");
+    metal_rv64_vm_register_builtin(vm, "str");
+    metal_rv64_vm_register_builtin(vm, "int");
+    metal_rv64_vm_register_builtin(vm, "array");
+    metal_rv64_vm_register_builtin(vm, "readline");
+    metal_rv64_vm_register_builtin(vm, "read");
+    metal_rv64_vm_register_builtin(vm, "input");
+    metal_rv64_vm_register_builtin(vm, "SRVM");
+}
+
 RV64Instruction rv64_decode(unsigned int raw) {
     RV64Instruction inst;
     inst.opcode = raw & 0x7F;
@@ -781,6 +796,39 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             else if (sz == 4) result = *(volatile uint32_t *)(uintptr_t)addr;
                             else if (sz == 8) result = (int64_t)*(volatile uint64_t *)(uintptr_t)addr;
                             vm->x[10] = mv_num(result);
+                        } else if (rv_strcmp(b_name, "array") == 0) {
+                            int size = (vm->x[10].type == MV_NUM) ? (int)fp_to_int(vm->x[10].as.number) : 0;
+                            int arr = rv_array_new(vm);
+                            MetalValue nil_val = mv_nil();
+                            for (int i = 0; i < size; i++)
+                                rv_array_push(vm, arr, nil_val);
+                            vm->x[10] = (MetalValue){MV_ARR, {.arr_idx = arr}};
+                        } else if (rv_strcmp(b_name, "readline") == 0 ||
+                                   rv_strcmp(b_name, "input") == 0 ||
+                                   rv_strcmp(b_name, "read") == 0) {
+                            char buf[256];
+                            int pos = 0;
+                            while (pos < 255) {
+                                int c = vm->read_char ? vm->read_char() : -1;
+                                if (c < 0) {
+                                    __asm__ volatile("wfi");
+                                    continue;
+                                }
+                                if (c == '\n' || c == '\r') break;
+                                if (c == '\b' || c == 127) {
+                                    if (pos > 0) {
+                                        pos--;
+                                        if (vm->write_char) { vm->write_char('\b'); vm->write_char(' '); vm->write_char('\b'); }
+                                    }
+                                    continue;
+                                }
+                                buf[pos++] = (char)c;
+                                if (vm->write_char) vm->write_char((char)c);
+                            }
+                            buf[pos] = '\0';
+                            if (pos > 0 && vm->write_char) vm->write_char('\n');
+                            int str_idx = rv_string_intern(vm, buf, pos);
+                            vm->x[10] = (MetalValue){MV_STR, {.str_idx = str_idx}};
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
                             rv_dict_set(vm, d_idx,
