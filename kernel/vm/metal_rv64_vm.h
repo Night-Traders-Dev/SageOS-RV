@@ -98,7 +98,15 @@ extern "C" {
 #define RV_VMO_PRINT        0x09
 #define RV_VMO_ARRAY_LEN    0x0A
 #define RV_VMO_PRINTM       0x0B
-#define RV_VMO_EXEC_AST     0x0C
+#define RV_VMO_CMP_BINARY 0x0D   // Generic binary comparison (type in funct7)
+
+// Comparison types for VMO_CMP_BINARY (funct7 field)
+#define CMP_EQ   0
+#define CMP_NEQ  1
+#define CMP_LT   2
+#define CMP_GT   3
+#define CMP_LE   4
+#define CMP_GE   5
 
 // Object Ops (sub_op via rs1 field)
 #define RV_OBJ_GET_GLOBAL   0x00

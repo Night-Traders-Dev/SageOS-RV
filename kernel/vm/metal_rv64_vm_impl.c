@@ -353,6 +353,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "input");
     metal_rv64_vm_register_builtin(vm, "streq");
     metal_rv64_vm_register_builtin(vm, "wdog_kick");
+    metal_rv64_vm_register_builtin(vm, "shell_exec");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
 
@@ -840,6 +841,51 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             // Write magic 0x76 to CRR register
                             *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
                             vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "shell_exec") == 0) {
+                            // shell_exec(cmd): dispatch shell command, return result string
+                            MetalValue cmd_val = vm->x[10];
+                            const char *cmd = "";
+                            if (cmd_val.type == MV_STR)
+                                cmd = rv_string_get(vm, cmd_val.as.str_idx);
+                            
+                            const char *result = "";
+                            if (rv_strcmp(cmd, "help") == 0) {
+                                result = "Commands: help version about clear dmesg ls cat mem ps halt";
+                            } else if (rv_strcmp(cmd, "version") == 0) {
+                                result = "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)";
+                            } else if (rv_strcmp(cmd, "about") == 0) {
+                                result = "SageOS-RV: Pure Sage OS for RISC-V 64";
+                            } else if (rv_strcmp(cmd, "clear") == 0) {
+                                if (vm->write_char) { vm->write_char(27); vm->write_char('['); vm->write_char('2'); vm->write_char('J'); }
+                                result = "";
+                            } else if (rv_strcmp(cmd, "dmesg") == 0) {
+                                result = "dmesg: log buffer at 0x87010000 (use kernel/dmesg.sage)";
+                            } else if (rv_strcmp(cmd, "ls") == 0) {
+                                result = "/welcome.txt (95 bytes)";
+                            } else if (rv_strcmp(cmd, "cat") == 0) {
+                                result = "Usage: cat <filename>";
+                            } else if (rv_strcmp(cmd, "mem") == 0) {
+                                result = "Memory: PMM bump allocator, 256 pages, 1 MiB arena";
+                            } else if (rv_strcmp(cmd, "ps") == 0) {
+                                result = "PID  NAME        STATE\n  0  shell       RUNNING";
+                            } else if (rv_strcmp(cmd, "halt") == 0) {
+                                result = "!HALT!";
+                            } else if (cmd[0] != '\0') {
+                                result = "Unknown command. Type 'help' for available commands.";
+                            }
+                            
+                            // Check for halt command
+                            if (rv_strcmp(result, "!HALT!") == 0) {
+                                vm->halted = 1;
+                                vm->running = 0;
+                                if (vm->write_char) {
+                                    rv_print_str(vm, "Halting system...\n");
+                                }
+                                return;
+                            }
+                            
+                            int ridx = rv_string_intern(vm, result, rv_strlen(result));
+                            vm->x[10] = (MetalValue){MV_STR, {.str_idx = ridx}};
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
                             rv_dict_set(vm, d_idx,
@@ -952,6 +998,37 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                     vm->running = 0;
                     return;
                 }
+            }
+            case RV_VMO_CMP_BINARY: {
+                MetalValue a = vm->x[10];
+                MetalValue b = vm->x[11];
+                int cmp_type = inst.funct7 & 0x7F;
+                int result = 0;
+                if (a.type == MV_NUM && b.type == MV_NUM) {
+                    int64_t va = a.as.number;
+                    int64_t vb = b.as.number;
+                    if (cmp_type == CMP_EQ) result = (va == vb) ? 1 : 0;
+                    else if (cmp_type == CMP_NEQ) result = (va != vb) ? 1 : 0;
+                    else if (cmp_type == CMP_LT) result = (va < vb) ? 1 : 0;
+                    else if (cmp_type == CMP_GT) result = (va > vb) ? 1 : 0;
+                    else if (cmp_type == CMP_LE) result = (va <= vb) ? 1 : 0;
+                    else if (cmp_type == CMP_GE) result = (va >= vb) ? 1 : 0;
+                } else if (a.type == MV_STR && b.type == MV_STR) {
+                    const char *sa = rv_string_get(vm, a.as.str_idx);
+                    const char *sb = rv_string_get(vm, b.as.str_idx);
+                    int cmp = rv_strcmp(sa, sb);
+                    if (cmp_type == CMP_EQ) result = (cmp == 0) ? 1 : 0;
+                    else if (cmp_type == CMP_NEQ) result = (cmp != 0) ? 1 : 0;
+                    else if (cmp_type == CMP_LT) result = (cmp < 0) ? 1 : 0;
+                    else if (cmp_type == CMP_LE) result = (cmp <= 0) ? 1 : 0;
+                    else if (cmp_type == CMP_GT) result = (cmp > 0) ? 1 : 0;
+                    else if (cmp_type == CMP_GE) result = (cmp >= 0) ? 1 : 0;
+                } else if (a.type == MV_BOOL && b.type == MV_BOOL) {
+                    if (cmp_type == CMP_EQ) result = (a.as.boolean == b.as.boolean) ? 1 : 0;
+                    else if (cmp_type == CMP_NEQ) result = (a.as.boolean != b.as.boolean) ? 1 : 0;
+                }
+                vm->x[10] = mv_num(result);
+                break;
             }
             default:
                 break;
