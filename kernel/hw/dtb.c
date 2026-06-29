@@ -68,15 +68,19 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
     uint32_t version        = be32(&hdr[5]);
 
     if (version < 16) return -1;
+    if (totalsize < 40) return -1;
+    if (off_dt_struct >= totalsize || off_dt_strings >= totalsize) return -1;
 
     const uint32_t *sp = (const uint32_t *)(base + off_dt_struct);
     const char *strblock   = (const char *)(base + off_dt_strings);
-    const uint8_t *end     = base + totalsize;
+    const uint8_t *struct_end = base + totalsize;
+    const uint8_t *strings_end = base + totalsize;
 
     int depth = 0, in_memory = 0, in_cpus = 0;
     int cur_is_uart = 0, cur_is_plic = 0;
     int addr_cells = 2, size_cells = 1;
 
+    const uint8_t *end = struct_end;
     while ((const uint8_t *)sp < end) {
         uint32_t token = be32(sp++);
 
@@ -108,11 +112,14 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
             break;
 
         case FDT_PROP: {
+            if ((const uint8_t *)(sp + 2) > end) goto done;
             uint32_t len     = be32(sp++);
             uint32_t nameoff = be32(sp++);
             const uint8_t *val = (const uint8_t *)sp;
+            if (val + len > end) goto done;
             sp += align4(len) / 4;
 
+            if (off_dt_strings + nameoff >= totalsize) break;
             if (prop_name_is(strblock, nameoff, "compatible")) {
                 cur_is_uart = compatible_is(val, len, "ns16550a") ||
                               compatible_is(val, len, "ns16550");

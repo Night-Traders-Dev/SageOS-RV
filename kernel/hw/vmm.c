@@ -63,6 +63,7 @@ int vmm_map_page(uint64_t vaddr, uint64_t paddr, uint64_t flags) {
 
     /* Level 0 -> leaf page */
     table[vpn0] = make_pte(ppn, PTE_V | flags);
+    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
 
     return 0;
 }

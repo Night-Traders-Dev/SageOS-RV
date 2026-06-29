@@ -1,0 +1,20 @@
+## U-Boot boot script for SageOS-RV on LicheeRV Nano
+## This script is compiled with:
+##   mkimage -A riscv -O linux -T script -C none -d boot.scr.txt boot.scr
+
+setenv kernel_addr  0x80200000
+setenv kernel_name sageos.bin
+
+echo "============================================"
+echo "  SageOS-RV Boot"
+echo "  Loading ${kernel_name} from mmc 0:1..."
+echo "============================================"
+
+if fatload mmc 0:1 ${kernel_addr} ${kernel_name}; then
+    echo "Loaded ${kernel_name} to ${kernel_addr}"
+    echo "Starting SageOS-RV..."
+    go ${kernel_addr}
+else
+    echo "ERROR: Failed to load ${kernel_name}"
+    echo "Dropping to U-Boot prompt"
+fi

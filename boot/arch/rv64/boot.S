@@ -3,16 +3,14 @@
 ##
 ## Board configuration passed via GCC defines:
 ##   UART_BASE        — 16550A UART MMIO base address
-##   CONFIG_STACK_TOP — Initial stack pointer address
 ##   CONFIG_MEM_BASE  — DRAM base address
+##
+## Stack pointer comes from linker symbol _stack_top (linker.ld).
 
 #include "sbi.h"
 
 #ifndef UART_BASE
 #  define UART_BASE  0x10000000
-#endif
-#ifndef CONFIG_STACK_TOP
-#  define CONFIG_STACK_TOP  0x81000000
 #endif
 
     .section .text.boot
@@ -27,8 +25,8 @@ _start:
     csrw satp, zero
     sfence.vma
 
-    ## Set up stack pointer from board configuration
-    li   sp, CONFIG_STACK_TOP
+    ## Set up stack pointer from linker symbol (single source of truth)
+    la   sp, _stack_top
 
     ## Output 'S' to prove we're running, using SBI ecall
     li   a7, SBI_CONSOLE_PUTCHAR
