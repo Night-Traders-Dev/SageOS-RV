@@ -849,7 +849,7 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             char buf[256]; int pos = 0;
                             while (pos < 255) {
                                 int c = vm->read_char ? vm->read_char() : -1;
-                                if (c < 0) { __asm__ volatile("wfi"); continue; }
+                                if (c < 0) continue;
                                 if (c == '\n' || c == '\r') break;
                                 if (c == '\b' || c == 127) { if (pos>0) pos--; continue; }
                                 buf[pos++] = (char)c;

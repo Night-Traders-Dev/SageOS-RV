@@ -213,7 +213,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         char buf[256]; int pos = 0;
         while (pos < 255) {
             int c = uart_getchar();
-            if (c < 0) { __asm__ volatile("wfi"); continue; }
+            if (c < 0) continue;
             if (c == '\n' || c == '\r') break;
             if (c == '\b' || c == 127) { if (pos > 0) pos--; continue; }
             buf[pos++] = (char)c;
