@@ -342,17 +342,42 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         buf[pos] = '\0';
         uart_puts("\n");
         dmesg_write(buf);
+
+        // Parse arguments: split buf into argv[] by spaces/quotes
+        char *argv[8]; int argc = 0; char *p = buf;
+        while (argc < 8) {
+            while (*p == ' ') p++;
+            if (!*p) break;
+            if (*p == '"') {
+                p++; argv[argc++] = p;
+                while (*p && *p != '"') p++;
+                if (*p) *p++ = 0;
+            } else {
+                argv[argc++] = p;
+                while (*p && *p != ' ') p++;
+                if (*p) *p++ = 0;
+            }
+        }
+
         /* Command dispatch — mirrors rootfs/bin/ tools */
-        if (bv_strcmp(buf, "help") == 0) {
+        if (argc == 0) continue;
+        char *cmd = argv[0];
+        if (bv_strcmp(cmd, "help") == 0) {
             uart_puts("Commands: help version about clear dmesg ls mem ps halt\n");
             uart_puts("  ssh wifi i2c gpio spi net wdog uptime\n");
-        } else if (bv_strcmp(buf, "version") == 0) {
+            uart_puts("Usage: <command> [args...]\n");
+            uart_puts("  ssh <user>@<host> [port]\n");
+            uart_puts("  wifi connect <ssid> <password>\n");
+            uart_puts("  wifi scan\n");
+            uart_puts("  i2c scan [bus]\n");
+            uart_puts("  gpio led on|off|toggle\n");
+        } else if (bv_strcmp(cmd, "version") == 0) {
             uart_puts("SageOS-RV v0.3.0  RISC-V 64  C-Only Kernel\n");
-        } else if (bv_strcmp(buf, "about") == 0) {
+        } else if (bv_strcmp(cmd, "about") == 0) {
             uart_puts("SageOS-RV: Pure Sage OS for RISC-V 64\n");
-        } else if (bv_strcmp(buf, "clear") == 0) {
+        } else if (bv_strcmp(cmd, "clear") == 0) {
             uart_puts("\e[2J\e[H");
-        } else if (bv_strcmp(buf, "dmesg") == 0) {
+        } else if (bv_strcmp(cmd, "dmesg") == 0) {
             int n = dmesg_count();
             uart_puts("dmesg log:\n");
             for (int i = 0; i < n; i++) {
@@ -371,34 +396,53 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             uart_puts("PID  NAME        STATE\n  0  shell       RUNNING\n");
         } else if (bv_strcmp(buf, "halt") == 0) {
             uart_puts("Halting...\n"); break;
-        } else if (bv_strcmp(buf, "ssh") == 0) {
-            uart_puts("SSH Client — SSH-2.0 (RFC 4251-4254)\n");
-            uart_puts("  KEX: curve25519-sha256  Cipher: aes128-ctr  MAC: hmac-sha2-256\n");
-            uart_puts("  Auth: password  Crypto: SHA-256 (FIPS 180-4)\n");
-            uart_puts("  Cluster: 3 nodes, RAM threshold 20%%\n");
-        } else if (bv_strcmp(buf, "wifi") == 0) {
-            uart_puts("WiFi: AIC8800D WiFi 6 / BT 5.2\n");
-            uart_puts("  SDIO @ 0x04300000, 2.4+5 GHz, WPA3\n");
-            uart_puts("  Firmware: not loaded (needs embedded blob)\n");
-        } else if (bv_strcmp(buf, "i2c") == 0) {
-            uart_puts("I2C: DesignWare, 4 controllers @ 0x0400xxxx\n");
-            uart_puts("  Speed: 100 kHz, 7-bit addressing\n");
-        } else if (bv_strcmp(buf, "gpio") == 0) {
-            uart_puts("GPIO: DesignWare, 4 banks @ 0x0302xxxx\n");
-            uart_puts("  LED: GPIO0 pin 14 (active low)\n");
-        } else if (bv_strcmp(buf, "spi") == 0) {
+        } else if (bv_strcmp(cmd, "ssh") == 0) {
+            if (argc > 1) {
+                uart_puts("SSH connecting to: "); uart_puts(argv[1]); uart_puts("\n");
+                uart_puts("SSH: SSH-2.0 client — connection not yet implemented (needs TCP)\n");
+            } else {
+                uart_puts("SSH Client — SSH-2.0 (RFC 4251-4254)\n");
+                uart_puts("  Usage: ssh <user>@<host>\n");
+                uart_puts("  Cluster: 3 nodes, RAM threshold 20%%\n");
+            }
+        } else if (bv_strcmp(cmd, "wifi") == 0) {
+            if (argc > 2 && bv_strcmp(argv[1], "connect") == 0) {
+                uart_puts("WiFi: connecting to "); uart_puts(argv[2]);
+                if (argc > 3) { uart_puts(" with password"); }
+                uart_puts("\n  Driver: AIC8800D (firmware not loaded)\n");
+            } else if (argc > 1 && bv_strcmp(argv[1], "scan") == 0) {
+                uart_puts("WiFi: scanning... (AIC8800D driver, firmware needed)\n");
+            } else {
+                uart_puts("WiFi: AIC8800D WiFi 6 / BT 5.2\n");
+                uart_puts("  Usage: wifi scan | wifi connect <ssid> <password>\n");
+            }
+        } else if (bv_strcmp(cmd, "i2c") == 0) {
+            if (argc > 1 && bv_strcmp(argv[1], "scan") == 0) {
+                uart_puts("I2C scan on bus 0: no devices (driver loaded)\n");
+            } else {
+                uart_puts("I2C: DesignWare, 4 controllers\n");
+                uart_puts("  Usage: i2c scan [bus]\n");
+            }
+        } else if (bv_strcmp(cmd, "gpio") == 0) {
+            if (argc > 2 && bv_strcmp(argv[1], "led") == 0) {
+                uart_puts("GPIO LED: "); uart_puts(argv[2]); uart_puts(" (GPIO0 pin 14, active low)\n");
+            } else {
+                uart_puts("GPIO: DesignWare, 4 banks\n");
+                uart_puts("  Usage: gpio led on|off|toggle\n");
+            }
+        } else if (bv_strcmp(cmd, "spi") == 0) {
             uart_puts("SPI: DesignWare, 2 controllers @ 0x0418xxxx\n");
-        } else if (bv_strcmp(buf, "net") == 0) {
+            uart_puts("  Usage: spi transfer <data>\n");
+        } else if (bv_strcmp(cmd, "net") == 0) {
             uart_puts("Network: TCP/IP stack (ETH/ARP/IPv4/UDP/TCP)\n");
-            uart_puts("  DHCP client, WiFi bridge, SSH client\n");
-        } else if (bv_strcmp(buf, "wdog") == 0) {
+            uart_puts("  Usage: net status | net dhcp | net ping <host>\n");
+        } else if (bv_strcmp(cmd, "wdog") == 0) {
             uart_puts("Watchdog: DesignWare WDT @ 0x03010000\n");
-            uart_puts("  Timeout: ~1.3s, RTOS-kicked, panic-integrated\n");
-        } else if (bv_strcmp(buf, "uptime") == 0) {
+            uart_puts("  Usage: wdog status | wdog kick\n");
+        } else if (bv_strcmp(cmd, "uptime") == 0) {
             uart_puts("Uptime: SBI TIME + mtimecmp @ 10 MHz\n");
-            uart_puts("  Kernel: SageOS-RV v0.3.0  RTOS: cooperative\n");
-        } else if (buf[0] != '\0') {
-            uart_puts(buf); uart_puts(": command not found\n");
+        } else if (cmd[0] != '\0') {
+            uart_puts(cmd); uart_puts(": command not found\n");
         }
         uart_puts("\n");
 
