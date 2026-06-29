@@ -1,0 +1,4 @@
+print("dmesg: diagnostic log buffer @ 0x87010000\n")
+print("  256 messages, 32KB ring buffer\n")
+print("  Survives warm reboot (magic detection)\n")
+print("  Severity: DEBUG INFO WARN ERROR FATAL\n")

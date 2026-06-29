@@ -1,0 +1,5 @@
+print("PID  NAME         STATE     PRIO\n")
+print("  0  shell        RUNNING     7\n")
+print("  1  idle         READY       0\n")
+print("  2  wdog_kicker  READY       7\n")
+print("  3  net_worker   SLEEPING    5\n")

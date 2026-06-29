@@ -364,6 +364,7 @@ cmd_build() {
 
     ## 3. Root filesystem
     info "Building root filesystem..."
+    "${SCRIPT_DIR}/tools/build_tools.sh" > /dev/null 2>&1 || true
     "${SCRIPT_DIR}/tools/mkrootfs.sh" "${SCRIPT_DIR}/rootfs" "${BUILD_DIR}/rootfs.bin" > /dev/null
     local rootfs_obj="${BUILD_DIR}/rootfs_obj.o"
     $OBJCOPY -I binary -O elf64-littleriscv -B riscv \

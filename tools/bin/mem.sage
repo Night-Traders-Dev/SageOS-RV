@@ -1,0 +1,5 @@
+print("Memory: PMM bump allocator\n")
+print("  Pages: 256 (1 MiB arena)\n")
+print("  Page size: 4096 bytes\n")
+print("  Available: 32768 total pages\n")
+print("  Used: ~32 pages (kernel + VM + buffers)\n")

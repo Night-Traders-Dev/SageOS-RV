@@ -1,18 +1,25 @@
-## shell/shell.sage — SageOS-RV Interactive Shell
-## Uses shell_input() builtin which handles prompt + readline + dispatch + print
+## shell/shell.sage — SageOS-RV Shell
+## Uses run() builtin to dynamically execute commands from rootfs
 
 print("[OK] MetalRV64: shell loaded\n")
 print("SageOS-RV Shell — type 'help' for commands\n\n")
 
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
-shell_input()
+run("help")
+print("\n")
+
+run("help")
+print("\n")
+
+run("help")
+print("\n")
+
+run("help")
+print("\n")
+
+run("help")
+print("\n")
+
+run("help")
+print("\n")
 
 print("Shell done.\n")

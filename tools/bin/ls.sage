@@ -1,0 +1,8 @@
+print("/bin:\n")
+print("  help     version  about   clear\n")
+print("  dmesg    ls       mem     ps\n")
+print("  halt\n")
+print("/usr/bin:\n")
+print("  net_scan ssh      i2c_scan\n")
+print("/:\n")
+print("  welcome.txt (95 bytes)\n")
