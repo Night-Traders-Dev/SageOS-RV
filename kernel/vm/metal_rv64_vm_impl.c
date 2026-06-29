@@ -806,25 +806,24 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                         } else if (rv_strcmp(b_name, "readline") == 0 ||
                                    rv_strcmp(b_name, "input") == 0 ||
                                    rv_strcmp(b_name, "read") == 0) {
-                            // Debug: prove builtin is invoked
-                            if (vm->write_char) { vm->write_char('<'); }
+                            if (vm->write_char) vm->write_char('<');
                             char buf[256];
                             int pos = 0;
                             while (pos < 255) {
                                 int c = vm->read_char ? vm->read_char() : -1;
                                 if (c < 0) { __asm__ volatile("wfi"); continue; }
+                                if (vm->write_char) vm->write_char('*');
                                 if (c == '\n' || c == '\r') break;
                                 if (c == '\b' || c == 127) {
-                                    if (pos > 0) { pos--; }
+                                    if (pos > 0) pos--;
                                     continue;
                                 }
                                 buf[pos++] = (char)c;
                             }
                             buf[pos] = '\0';
-                            // Echo the whole line at once
                             if (vm->write_char) {
-                                for (int i = 0; i < pos; i++) vm->write_char(buf[i]);
-                                vm->write_char('\n');
+                                vm->write_char('!');
+                                rv_print_int(vm, pos);
                             }
                             int str_idx = rv_string_intern(vm, buf, pos);
                             vm->x[10] = (MetalValue){MV_STR, {.str_idx = str_idx}};

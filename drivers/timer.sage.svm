@@ -1,0 +1,177 @@
+SAGEBC1
+functions 7
+function
+params 0
+constants 1
+number 0
+code 6
+0000002c012c
+endfunction
+function
+params 1
+param 5
+7469636b73
+constants 1
+number 0
+code 6
+0000002c012c
+endfunction
+function
+params 2
+param 7
+667265715f687a
+param 11
+696e74657276616c5f6d73
+constants 4
+number 1000
+string 14
+74696d65725f696e74657276616c
+number 0
+string 11
+74696d65725f7469636b73
+code 24
+3b0000000000123b0001110700010400000207000304012c
+endfunction
+function
+params 1
+param 7
+667265715f687a
+constants 9
+string 15
+74696d65725f6765745f7469636b73
+string 10
+74696d65725f6e657874
+string 14
+74696d65725f696e74657276616c
+string 10
+74696d65725f6e657874
+string 11
+74696d65725f7469636b73
+number 1
+string 11
+74696d65725f7469636b73
+number 1
+number 0
+code 53
+05000025003b00010500011824002d043b00010500020f070003040500040000050f070006040000072c23002e040000082c04012c
+endfunction
+function
+params 0
+constants 1
+string 11
+74696d65725f7469636b73
+code 6
+0500002c012c
+endfunction
+function
+params 1
+param 12
+6d6963726f7365636f6e6473
+constants 3
+number 1000
+number 0
+number 1
+code 36
+3b0000000000113b000100000117240020043b0001000002103c0001042300070404012c
+endfunction
+function
+params 1
+param 12
+6d696c6c697365636f6e6473
+constants 2
+string 8
+64656c61795f7573
+number 1000
+code 15
+0500003b000000000111250104012c
+endfunction
+chunks 12
+chunk
+constants 2
+number 10000000
+string 15
+54494d45525f465245515f51454d55
+code 8
+000000060001012c
+endchunk
+chunk
+constants 2
+number 25000000
+string 17
+54494d45525f465245515f534732303032
+code 8
+000000060001012c
+endchunk
+chunk
+constants 1
+string 15
+74696d65725f6765745f7469636b73
+code 7
+0800000000012c
+endchunk
+chunk
+constants 1
+string 13
+74696d65725f7365745f636d70
+code 7
+0800000001012c
+endchunk
+chunk
+constants 2
+number 0
+string 11
+74696d65725f7469636b73
+code 8
+000000060001012c
+endchunk
+chunk
+constants 2
+number 0
+string 14
+74696d65725f696e74657276616c
+code 8
+000000060001012c
+endchunk
+chunk
+constants 1
+string 10
+74696d65725f696e6974
+code 7
+0800000002012c
+endchunk
+chunk
+constants 1
+string 10
+74696d65725f706f6c6c
+code 7
+0800000003012c
+endchunk
+chunk
+constants 2
+number 0
+string 10
+74696d65725f6e657874
+code 8
+000000060001012c
+endchunk
+chunk
+constants 1
+string 10
+74696d65725f72656164
+code 7
+0800000004012c
+endchunk
+chunk
+constants 1
+string 8
+64656c61795f7573
+code 7
+0800000005012c
+endchunk
+chunk
+constants 1
+string 8
+64656c61795f6d73
+code 7
+0800000006012c
+endchunk
