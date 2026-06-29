@@ -55,6 +55,12 @@ static void uart_putc(char c) {
 }
 
 static int uart_getchar(void) {
+    // Try SBI console getchar first (works reliably in QEMU)
+    register long a7 __asm__("a7") = 0x02; // SBI legacy console_getchar
+    register long a0 __asm__("a0");
+    __asm__ volatile("ecall" : "=r"(a0) : "r"(a7) : "memory");
+    if (a0 >= 0) return (int)a0;
+    // Fallback: direct UART read
     if (_r8(UART_BASE + UART_LSR) & UART_DR)
         return (int)_r8(UART_BASE + UART_RBR);
     return -1;
