@@ -159,7 +159,8 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         _halt("metal_rv64_vm_load_binary() failed for shell");
 
     int rc = 0;
-    for (int i = 0; i < rv64_vm.chunk_count; i++) {
+    // Phase 1: run definition chunks first (SET globals before GET)
+    for (int i = 1; i < rv64_vm.chunk_count; i++) {
         rv64_vm.current_chunk_idx = i;
         rv64_vm.bytecode = rv64_vm.chunks[i];
         rv64_vm.bytecode_length = rv64_vm.chunk_lengths[i];
@@ -173,6 +174,19 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             if (rv64_vm.error_msg) uart_puts(rv64_vm.error_msg);
             uart_puts("\n");
             break;
+        }
+    }
+    // Phase 2: run main body (chunk 0) with all globals registered
+    if (rc == 0 && rv64_vm.chunk_count > 0) {
+        rv64_vm.current_chunk_idx = 0;
+        rv64_vm.bytecode = rv64_vm.chunks[0];
+        rv64_vm.bytecode_length = rv64_vm.chunk_lengths[0];
+        rv64_vm.pc = 0;
+        rc = metal_rv64_vm_run(&rv64_vm);
+        if (rc < 0) {
+            uart_puts("[MetalRV64] Chunk 0 error: ");
+            if (rv64_vm.error_msg) uart_puts(rv64_vm.error_msg);
+            uart_puts("\n");
         }
     }
 
