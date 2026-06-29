@@ -1,6 +1,6 @@
 SAGEBC1
 functions 0
-chunks 5
+chunks 18
 chunk
 constants 1
 string 29
@@ -10,45 +10,126 @@ code 6
 endchunk
 chunk
 constants 1
-string 41
-536167654f532d5256205368656c6c20e280942074797065202768616c742720746f20657869740a0a
+string 39
+0a536167654f532d5256205368656c6c20e2809420696e746572616374697665206563686f0a0a
 code 6
 0000002a012c
 endchunk
 chunk
 constants 1
-string 7
-72756e6e696e67
-code 6
-02060000012c
-endchunk
-chunk
-constants 9
-string 7
-72756e6e696e67
 string 6
 736167652320
+code 6
+0000002a012c
+endchunk
+chunk
+constants 2
 string 8
 726561646c696e65
-string 11
-596f752074797065643a20
-string 1
-0a
-string 5
-7374726571
-string 4
-68616c74
-string 11
-48616c74696e672e2e2e0a
-string 7
-72756e6e696e67
-code 63
-05000024003c040000012a05000225000000032a3b00002a0000042a0500053b00000000062502240037040000072a0307000804230038040423000004012c
+string 2
+6331
+code 10
+0500002500060001012c
 endchunk
 chunk
 constants 1
-string 14
-5368656c6c206578697465642e0a
+string 11
+596f752074797065643a20
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 2
+6331
+code 6
+0500002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 6
+736167652320
+code 6
+0000002a012c
+endchunk
+chunk
+constants 2
+string 8
+726561646c696e65
+string 2
+6332
+code 10
+0500002500060001012c
+endchunk
+chunk
+constants 1
+string 11
+596f752074797065643a20
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 2
+6332
+code 6
+0500002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 6
+736167652320
+code 6
+0000002a012c
+endchunk
+chunk
+constants 2
+string 8
+726561646c696e65
+string 2
+6333
+code 10
+0500002500060001012c
+endchunk
+chunk
+constants 1
+string 11
+596f752074797065643a20
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 2
+6333
+code 6
+0500002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 12
+5368656c6c20646f6e652e0a
 code 6
 0000002a012c
 endchunk
