@@ -7,42 +7,61 @@ Target hardware: LicheeRV Nano (Sophgo SG2002, rv64imac). Development platform: 
 
 ## Architecture Overview
 
-SageOS-RV uses the **MetalRV64** RISC-V register-based VM as the primary execution engine. All Sage code is compiled to SGRV bytecode (`sagevm compile --riscv`) and executed by the freestanding RV64 VM.
+SageOS-RV uses a layered VM architecture:
 
 ```
-┌─────────────────────────────────────────────────┐
-│  SageOS-RV kernel image (sageos.elf)            │
-│                                                 │
-│  boot.S              bare-metal entry (ASM)     │
-│  fallback_kernel.c   C boot stage               │
-│  dtb.c / vmm.c       hardware abstraction       │
-│                                                 │
-│  MetalRV64 VM  (metal_rv64_vm_impl.c)            │
-│  freestanding RISC-V bytecode interpreter       │
-│  Q32.32 fixed-point, no libc, no FPU            │
-│                                                 │
-│  .sgvm_kernel section                           │
-│  ┌─────────────────────────────────────────┐   │
-│  │  kmain.sgvm  (SGRV bytecode)            │   │
-│  │  compiled via: sagevm compile --riscv   │   │
-│  └─────────────────────────────────────────┘   │
-│                                                 │
-│  .sgvm_shell section                            │
-│  ┌─────────────────────────────────────────┐   │
-│  │  shell.sgvm   (SGRV bytecode)            │   │
-│  │  compiled via: sagevm compile --riscv   │   │
-│  └─────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  SageOS-RV kernel image (sageos.elf)             │
+│                                                  │
+│  Layer 3: SRVM (SageVM) — Sage-level VM          │
+│  kernel/srvm_core.sage + srvm_vm.sage            │
+│  Compiled into SGRV bytecode via --riscv         │
+│  Provides module system, imports, RISC-V ops     │
+│                                                  │
+│  Layer 2: MetalRV64VM (C) — Bare-metal adapter   │
+│  kernel/metal_rv64_vm_impl.c                     │
+│  Q32.32 fixed-point, no libc, no FPU             │
+│  Executes SGRV bytecode on bare metal            │
+│                                                  │
+│  Layer 1: C kernel — Hardware abstraction        │
+│  fallback_kernel.c, boot.S, dtb.c, vmm.c         │
+│  UART, PMM, VMM, SBI wrappers                   │
+│                                                  │
+│  Embedded sections:                              │
+│  .sgvm_kernel — kmain.sgvm (SGRV bytecode)       │
+│  .sgvm_shell  — shell.sgvm  (SGRV bytecode)      │
+└──────────────────────────────────────────────────┘
 ```
 
-| Layer | Source | Compiled by | Role |
-|---|---|---|---|
-| Boot stub | `boot/arch/rv64/boot.S` | `riscv64-linux-gnu-gcc` | Minimal ASM entry, jumps to `sage_kernel_main` |
-| C kernel | `kernel/fallback_kernel.c` | `riscv64-linux-gnu-gcc -nostdlib -ffreestanding` | Hardware init, PMM, VMM, MetalRV64 VM bootstrap |
-| MetalRV64 VM | `kernel/metal_rv64_vm_impl.c` | same | Freestanding RISC-V register VM (Q32.32 fixed-point) |
-| Stack VM | `kernel/metal_vm_impl.c` | same | Stack-based MetalVM (provides value constructors) |
-| Kernel logic | `kernel/kmain.sage` | `sagevm compile --riscv` | Kernel init as SGRV bytecode |
-| Shell | `shell/shell.sage` | `sagevm compile --riscv` | Interactive shell as SGRV bytecode |
+| Layer | Source | Role |
+|---|---|---|
+| **SRVM** | `kernel/srvm_*.sage` (from [SageVM](https://github.com/Night-Traders-Dev/SageVM)) | Sage-level VM: compilation target, import resolver, RISC-V opcodes |
+| **MetalRV64VM** | `kernel/metal_rv64_vm_impl.c` (adapted from sagelang) | Bare-metal C adapter: Q32.32 fixed-point, no FPU |
+| **C kernel** | `kernel/fallback_kernel.c`, `boot.S` | Hardware init, UART, PMM, VMM |
+| **Shell** | `shell/shell.sage` | Interactive shell, compiled to SGRV |
+| **Kernel logic** | `kernel/kmain.sage` | Sage kernel init, compiled to SGRV |
+
+### Compilation Flow
+
+```
+shell/shell.sage ──────────────────────────┐
+kernel/kmain.sage + srvm_*.sage ─────────┤
+                                           │
+    sagevm compile --riscv  (SageVM SRVM)  │
+                                           ▼
+    .sgrv bytecode (32-bit RV64I instructions)
+                                           │
+    riscv64-linux-gnu-objcopy              │
+                                           ▼
+    section .sgvm_kernel / .sgvm_shell     │
+                                           │
+    riscv64-linux-gnu-ld                   │
+                                           ▼
+    sageos.elf  ─►  QEMU -cpu rv64        │
+                                           │
+    MetalRV64VM (Q32.32 fixed-point)      │
+    executes SGRV bytecode on bare metal   │
+```
 
 ---
 

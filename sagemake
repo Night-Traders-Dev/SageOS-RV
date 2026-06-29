@@ -62,12 +62,13 @@ OBJCOPY="${RISCV_OBJCOPY:-riscv64-linux-gnu-objcopy}"
 QEMU="${QEMU_BIN:-qemu-system-riscv64}"
 OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin}"
 
-SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/../SageVM}"
+SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/deps/SageVM}"
 
 ## Resolve SAGELANG_CORE — prefer lowercase path (actual checkout location)
 if [ -z "${SAGELANG_CORE:-}" ]; then
     for candidate in \
         "/home/kraken/Devel/sagelang/core" \
+        "${SCRIPT_DIR}/deps/sagelang/core" \
         "${SCRIPT_DIR}/../sagelang/core" \
         "/home/kraken/Devel/SageLang/core" \
         "${SCRIPT_DIR}/../SageLang/core"; do
@@ -86,8 +87,9 @@ BOARD="${BOARD:-qemu-virt}"
 BUILD_DIR="${SCRIPT_DIR}/build"
 IMAGE_DIR="${SCRIPT_DIR}/images"
 
-## MetalVM include path (headers live here alongside the impl files)
-METAL_INC="${SCRIPT_DIR}/kernel"
+## MetalVM include path — use upstream sagelang headers, kernel for impl
+METAL_INC="${SAGELANG_CORE}/include"
+KERNEL_INC="${SCRIPT_DIR}/kernel"
 
 ## Bare-metal compile flags
 BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
@@ -298,7 +300,11 @@ cmd_ensure_srvm() {
 
 cmd_setup_srvm() {
     local srvm_src="${SAGEVM_DIR}/src/srvm"
-    [ -d "${srvm_src}" ] || fail "SageVM not found at ${SAGEVM_DIR}. Set SAGEVM_DIR."
+    if [ ! -d "${srvm_src}" ]; then
+        info "Cloning SageVM submodule..."
+        git submodule update --init --recursive deps/SageVM || fail "Submodule init failed"
+    fi
+    [ -d "${srvm_src}" ] || fail "SageVM submodule not found at ${SAGEVM_DIR}. Run: git submodule update --init"
     cp "${srvm_src}/srvm_core.sage" "${SCRIPT_DIR}/kernel/srvm_core.sage"
     cp "${srvm_src}/srvm_vm.sage"   "${SCRIPT_DIR}/kernel/srvm_vm.sage"
     ok "kernel/srvm_core.sage"; ok "kernel/srvm_vm.sage"

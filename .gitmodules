@@ -1,2 +1,5 @@
 # No active submodules.
 # SageRTOS is managed via: ./sagemake setup-rtos  (git clone --depth=1)
+[submodule "deps/SageVM"]
+	path = deps/SageVM
+	url = https://github.com/Night-Traders-Dev/SageVM.git
