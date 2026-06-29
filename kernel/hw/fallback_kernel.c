@@ -55,7 +55,7 @@ static void uart_putc(char c) {
 }
 
 static int uart_getchar(void) {
-    // Poll LSR.DR directly — no SBI, no wfi, just raw UART access
+    // Direct UART poll — no SBI blocking
     if (_r8(UART_BASE + UART_LSR) & UART_DR)
         return (int)_r8(UART_BASE + UART_RBR);
     return -1;

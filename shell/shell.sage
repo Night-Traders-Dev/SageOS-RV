@@ -1,30 +1,18 @@
-## shell/shell.sage — SageOS-RV Interactive Echo Shell
+## shell/shell.sage — SageOS-RV Interactive Shell
+## Uses shell_input() builtin which handles prompt + readline + dispatch + print
 
 print("[OK] MetalRV64: shell loaded\n")
-print("SageOS-RV Shell — type below:\n\n")
+print("SageOS-RV Shell — type 'help' for commands\n\n")
 
-print("sage# ")
-print(readline())
-print("\n")
-
-print("sage# ")
-print(readline())
-print("\n")
-
-print("sage# ")
-print(readline())
-print("\n")
-
-print("sage# ")
-print(readline())
-print("\n")
-
-print("sage# ")
-print(readline())
-print("\n")
-
-print("sage# ")
-print(readline())
-print("\n")
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
+shell_input()
 
 print("Shell done.\n")

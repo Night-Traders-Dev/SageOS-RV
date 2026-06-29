@@ -354,6 +354,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "streq");
     metal_rv64_vm_register_builtin(vm, "wdog_kick");
     metal_rv64_vm_register_builtin(vm, "shell_exec");
+    metal_rv64_vm_register_builtin(vm, "shell_input");
     metal_rv64_vm_register_builtin(vm, "rtos_tick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
@@ -841,6 +842,59 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             // Kick the hardware watchdog (DesignWare WDT at 0x03010000)
                             // Write magic 0x76 to CRR register
                             *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "shell_input") == 0) {
+                            // shell_input(): print prompt, readline, dispatch, print result — all in one builtin
+                            if (vm->write_char) rv_print_str(vm, "sage# ");
+                            char buf[256]; int pos = 0;
+                            while (pos < 255) {
+                                int c = vm->read_char ? vm->read_char() : -1;
+                                if (c < 0) { __asm__ volatile("wfi"); continue; }
+                                if (c == '\n' || c == '\r') break;
+                                if (c == '\b' || c == 127) { if (pos>0) pos--; continue; }
+                                buf[pos++] = (char)c;
+                                if (vm->write_char) vm->write_char((char)c);
+                            }
+                            buf[pos] = '\0';
+                            if (pos > 0 && vm->write_char) vm->write_char('\n');
+                            // Dispatch command
+                            if (vm->write_char) {
+                                if (rv_strcmp(buf, "help") == 0) {
+                                    rv_print_str(vm, "Commands: help version about clear dmesg ls mem ps i2c_scan gpio uptime wdog net_scan ssh halt");
+                                } else if (rv_strcmp(buf, "version") == 0) {
+                                    rv_print_str(vm, "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)");
+                                } else if (rv_strcmp(buf, "about") == 0) {
+                                    rv_print_str(vm, "SageOS-RV: Pure Sage OS for RISC-V 64. SageVM + SageRTOS + SSH.");
+                                } else if (rv_strcmp(buf, "clear") == 0) {
+                                    vm->write_char(27); vm->write_char('['); vm->write_char('2'); vm->write_char('J');
+                                } else if (rv_strcmp(buf, "dmesg") == 0) {
+                                    rv_print_str(vm, "dmesg: 256 msgs @ 0x87010000, warm-boot persistent");
+                                } else if (rv_strcmp(buf, "ls") == 0) {
+                                    rv_print_str(vm, "/welcome.txt (95 bytes)");
+                                } else if (rv_strcmp(buf, "mem") == 0) {
+                                    rv_print_str(vm, "Memory: 256 pages (1 MiB), 32768 total, PMM bump allocator");
+                                } else if (rv_strcmp(buf, "ps") == 0) {
+                                    rv_print_str(vm, "PID  NAME    STATE\n  0  shell   RUNNING\n  1  idle    READY");
+                                } else if (rv_strcmp(buf, "i2c_scan") == 0) {
+                                    rv_print_str(vm, "I2C0 @ 0x04000000: DesignWare, 100 kHz, driver loaded");
+                                } else if (rv_strcmp(buf, "gpio") == 0) {
+                                    rv_print_str(vm, "GPIO: 4 banks @ 0x03020000, LED on GPIO0 pin 14");
+                                } else if (rv_strcmp(buf, "uptime") == 0) {
+                                    rv_print_str(vm, "Uptime: timer @ 10 MHz, SBI TIME + mtimecmp polling");
+                                } else if (rv_strcmp(buf, "wdog") == 0) {
+                                    rv_print_str(vm, "Watchdog: DesignWare WDT, ~1.3s timeout, kicked by RTOS");
+                                } else if (rv_strcmp(buf, "net_scan") == 0) {
+                                    rv_print_str(vm, "WiFi: AIC8800D @ SDIO 0x04300000, firmware not loaded");
+                                } else if (rv_strcmp(buf, "ssh") == 0) {
+                                    rv_print_str(vm, "SSH: SSH-2.0, curve25519+sha256+aes128-ctr, cluster monitor");
+                                } else if (rv_strcmp(buf, "halt") == 0) {
+                                    rv_print_str(vm, "Halting...\n");
+                                    vm->halted = 1; vm->running = 0; return;
+                                } else if (buf[0] != '\0') {
+                                    rv_print_str(vm, "Unknown: "); rv_print_str(vm, buf);
+                                }
+                            }
+                            if (vm->write_char) vm->write_char('\n');
                             vm->x[10] = mv_nil();
                         } else if (rv_strcmp(b_name, "shell_exec") == 0) {
                             MetalValue cmd_val = vm->x[10];

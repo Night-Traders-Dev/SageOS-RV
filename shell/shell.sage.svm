@@ -1,6 +1,6 @@
 SAGEBC1
 functions 0
-chunks 21
+chunks 13
 chunk
 constants 1
 string 29
@@ -10,136 +10,80 @@ code 6
 endchunk
 chunk
 constants 1
-string 33
-536167654f532d5256205368656c6c20e2809420747970652062656c6f773a0a0a
+string 46
+536167654f532d5256205368656c6c20e280942074797065202768656c702720666f7220636f6d6d616e64730a0a
 code 6
 0000002a012c
 endchunk
 chunk
 constants 1
-string 6
-736167652320
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 6
-736167652320
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 6
-736167652320
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 6
-736167652320
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 6
-736167652320
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
+string 11
+7368656c6c5f696e707574
 code 6
-0000002a012c
-endchunk
-chunk
-constants 1
-string 6
-736167652320
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
-string 8
-726561646c696e65
-code 8
-05000025002a012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
+05000025002c
 endchunk
 chunk
 constants 1
