@@ -389,13 +389,12 @@ cmd_build() {
 
     ## 7. Drivers
     info "Compiling drivers..."
-    for sage_file in "${SCRIPT_DIR}"/drivers/*.sage; do
-        [ -f "$sage_file" ] || continue
+    while IFS= read -r -d '' sage_file; do
         local name; name=$(basename "$sage_file" .sage)
         if "$SAGEVM" compile "$sage_file" "${BUILD_DIR}/drv_${name}.sgvm" --riscv 2>/dev/null; then
             ok "Driver compiled: $name"
         fi
-    done
+    done < <(find "${SCRIPT_DIR}/drivers" -name "*.sage" -print0)
 
     ## 8. Link
     info "Linking kernel image..."

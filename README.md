@@ -185,7 +185,13 @@ SageOS-RV/
 ├── shell/
 │   ├── shell.sage              interactive shell source
 │   └── shell.sgvm              compiled SGRV bytecode
-├── drivers/                    Sage driver sources
+├── drivers/                   Sage driver sources (pure Sage)
+│   ├── bus/                   I2C, SPI bus drivers
+│   ├── gpio/                  GPIO driver (DesignWare)
+│   ├── wifi/                  WiFi drivers (AIC8800, ESP-AT)
+│   ├── sys/                   System drivers (PLIC, timer, watchdog, syscon)
+│   ├── uart/                  16550A UART driver
+│   └── boards/                Board support packages
 ├── rtos/                       SageRTOS submodule (optional)
 ├── tests/                     Test suite
 │   └── panic_test.sage         Error handling + panic tests
@@ -260,9 +266,10 @@ sagevm run tests/panic_test.sgvm --riscv       # run panic tests
 
 ## Known Limitations
 
-- **Kernel in C fallback**: `kmain.sage` uses SRVM with module imports that need runtime global resolution. The kernel boot path currently skips Sage kernel init and goes directly to the shell via MetalRV64 VM.
-- **Shell**: Runs as SGRV bytecode through the MetalRV64 RISC-V register VM. Limited to Sage builtins (print, etc.). Full interactive shell with command processing requires SRVM runtime integration.
-- **sstatus.SIE WARL-0**: On QEMU's `-cpu rv64` virt machine, supervisor interrupts are emulation-restricted. Poll `SIP.STIP` as a workaround.
+- **Kernel module imports**: kmain.sage uses SRVM with module imports needing runtime global resolution. The kernel currently boots as a minimal init stub, shell runs directly.
+- **WiFi requires firmware**: The AIC8800 driver (`drivers/wifi/aic8800.sage`) needs firmware blob embedded for full operation. Without firmware, falls back to ESP-AT UART WiFi.
+- **sstatus.SIE WARL-0**: On QEMU's `-cpu rv64`, supervisor interrupts are emulation-restricted. Poll `SIP.STIP` as workaround.
+- **LicheeRV hardware**: Drivers verified against aic8800_linux_drvier reference; real hardware testing pending for SDIO register-level access and firmware loading.
 
 ---
 
