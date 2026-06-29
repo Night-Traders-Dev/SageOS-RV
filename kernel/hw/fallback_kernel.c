@@ -50,19 +50,18 @@ static void uart_init(void) {
 }
 
 static void uart_putc(char c) {
-    while ((_r8(UART_BASE + UART_LSR) & UART_THRE) == 0);
-    _w8(UART_BASE + UART_THR, (uint8_t)c);
+    // SBI legacy console_putchar (EID 0x01) — works reliably in QEMU
+    register long a7 __asm__("a7") = 0x01;
+    register long a0 __asm__("a0") = (long)(unsigned char)c;
+    __asm__ volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
 }
 
 static int uart_getchar(void) {
-    // Try SBI console getchar first (works reliably in QEMU)
-    register long a7 __asm__("a7") = 0x02; // SBI legacy console_getchar
+    // SBI legacy console_getchar (EID 0x02) — returns char or -1
+    register long a7 __asm__("a7") = 0x02;
     register long a0 __asm__("a0");
     __asm__ volatile("ecall" : "=r"(a0) : "r"(a7) : "memory");
-    if (a0 >= 0) return (int)a0;
-    // Fallback: direct UART read
-    if (_r8(UART_BASE + UART_LSR) & UART_DR)
-        return (int)_r8(UART_BASE + UART_RBR);
+    if (a0 >= 0 && a0 <= 255) return (int)a0;
     return -1;
 }
 
