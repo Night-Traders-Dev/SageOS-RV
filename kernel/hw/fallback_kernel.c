@@ -427,21 +427,169 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
 
     int wdog_ticks = 0;
     uart_puts("[SageOS] C-only kernel active\n");
-    uart_puts("[SageOS] Type 'help' for commands\n\n");
+    uart_puts("[SageOS] Type 'help' for commands — TAB complete, arrows for history\n\n");
+
+    // Shell state
+    char history[32][256]; int hist_count = 0; int hist_pos = 0;
+    const char *commands[] = {
+        "help","version","about","clear","dmesg","ls","mem","ps","halt",
+        "ssh","wifi","i2c","gpio","spi","net","wdog","uptime","rtos",
+        "sagefetch","uname","whoami","df","free","kill","ping","curl",
+        "pwd","cd","cat","grep","find","ip","cp","mv","rm","touch",0
+    };
 
     while (1) {
         uart_puts("sage# ");
-        char buf[256]; int pos = 0;
-        while (pos < 255) {
+        char buf[256]; int pos = 0, cursor = 0;
+        char suggestion[256] = ""; int suggest_len = 0;
+
+        while (pos < 254) {
             int c = uart_getchar();
             if (c < 0) continue;
-            if (c == '\n' || c == '\r') break;
-            if (c == '\b' || c == 127) { if (pos > 0) pos--; continue; }
-            buf[pos++] = (char)c;
-            uart_putc((char)c);
+
+            // --- Ctrl key combos ---
+            if (c == 3) { // Ctrl+C — clear line
+                uart_puts("^C\n"); pos = 0; cursor = 0; break;
+            }
+            if (c == 4) { // Ctrl+D — EOF
+                if (pos == 0) { uart_puts("^D\n"); goto shell_exit; }
+                continue;
+            }
+            if (c == 12) { // Ctrl+L — clear screen
+                uart_puts("\e[2J\e[H"); uart_puts("sage# ");
+                for (int i = 0; i < pos; i++) uart_putc(buf[i]);
+                continue;
+            }
+
+            // --- Enter ---
+            if (c == '\n' || c == '\r') { uart_puts("\n"); break; }
+
+            // --- Backspace ---
+            if (c == 127 || c == 8) {
+                if (pos > 0 && cursor == pos) {
+                    pos--; cursor--;
+                    uart_puts("\b \b");
+                }
+                continue;
+            }
+
+            // --- Tab (autocomplete) ---
+            if (c == 9) {
+                buf[pos] = 0;
+                int matches[32]; int mcount = 0;
+                for (int i = 0; commands[i]; i++) {
+                    int match = 1;
+                    for (int j = 0; j < pos && commands[i][j]; j++)
+                        if (buf[j] != commands[i][j]) { match = 0; break; }
+                    if (match && mcount < 32) matches[mcount++] = i;
+                }
+                if (mcount == 1) {
+                    // Single match — complete it
+                    const char *match = commands[matches[0]];
+                    int mlen = bv_strlen(match);
+                    for (int i = pos; i < mlen; i++) {
+                        buf[i] = match[i]; uart_putc(match[i]);
+                    }
+                    pos = mlen; cursor = mlen;
+                    uart_putc(' ');  // auto-space
+                } else if (mcount > 1) {
+                    // Multiple matches — show list
+                    uart_puts("\n");
+                    for (int i = 0; i < mcount; i++) {
+                        uart_puts(commands[matches[i]]);
+                        uart_puts("  ");
+                    }
+                    uart_puts("\nsage# ");
+                    for (int i = 0; i < pos; i++) uart_putc(buf[i]);
+                }
+                continue;
+            }
+
+            // --- ANSI escape sequences (arrows) ---
+            if (c == 27) {
+                int c2 = uart_getchar(); if (c2 < 0) continue;
+                if (c2 != '[') continue;
+                int c3 = uart_getchar(); if (c3 < 0) continue;
+
+                if (c3 == 'A') { // Up arrow — history back
+                    if (hist_count > 0 && hist_pos > 0) {
+                        hist_pos--;
+                        // Clear current line
+                        while (cursor > 0) { uart_puts("\b \b"); cursor--; }
+                        // Load history entry
+                        const char *h = history[hist_pos];
+                        int hlen = bv_strlen(h);
+                        for (int i = 0; i < hlen; i++) buf[i] = h[i];
+                        for (int i = 0; i < hlen; i++) uart_putc(buf[i]);
+                        pos = hlen; cursor = hlen;
+                    }
+                } else if (c3 == 'B') { // Down arrow — history forward
+                    if (hist_pos < hist_count) {
+                        hist_pos++;
+                        while (cursor > 0) { uart_puts("\b \b"); cursor--; }
+                        if (hist_pos == hist_count) {
+                            pos = 0; cursor = 0; // Clear to new input
+                        } else {
+                            const char *h = history[hist_pos];
+                            int hlen = bv_strlen(h);
+                            for (int i = 0; i < hlen; i++) buf[i] = h[i];
+                            for (int i = 0; i < hlen; i++) uart_putc(buf[i]);
+                            pos = hlen; cursor = hlen;
+                        }
+                    }
+                } else if (c3 == 'C') { // Right arrow
+                    if (cursor < pos) { uart_puts("\e[C"); cursor++; }
+                } else if (c3 == 'D') { // Left arrow
+                    if (cursor > 0) { uart_puts("\e[D"); cursor--; }
+                }
+                continue;
+            }
+
+            // --- Printable character ---
+            if (c >= 32 && c < 127) {
+                buf[pos++] = (char)c; cursor = pos;
+                uart_putc((char)c);
+                // Show fish-style suggestion from history
+                buf[pos] = 0;
+                for (int h = hist_count - 1; h >= 0; h--) {
+                    int match = 1;
+                    for (int i = 0; i < pos && history[h][i]; i++)
+                        if (buf[i] != history[h][i]) { match = 0; break; }
+                    if (match && history[h][pos]) {
+                        // Show dim suggestion
+                        uart_puts("\e[2m");  // dim
+                        int slen = 0;
+                        while (history[h][pos + slen]) slen++;
+                        for (int i = 0; i < slen; i++)
+                            uart_putc(history[h][pos + i]);
+                        uart_puts("\e[0m\e[0K");  // reset + clear to EOL
+                        break;
+                    }
+                }
+            }
         }
+
         buf[pos] = '\0';
-        uart_puts("\n");
+
+        // Save to history
+        if (pos > 0) {
+            if (hist_count < 32) {
+                int i = 0; while (buf[i]) { history[hist_count][i] = buf[i]; i++; }
+                history[hist_count][i] = 0;
+                hist_count++;
+            } else {
+                // Shift history ring
+                for (int h = 0; h < 31; h++)
+                    for (int i = 0; i < 256; i++) history[h][i] = history[h+1][i];
+                int i = 0; while (buf[i]) { history[31][i] = buf[i]; i++; }
+                history[31][i] = 0;
+            }
+            hist_pos = hist_count;
+        }
+
+        // Clear suggestion line if any
+        if (pos == 0) continue;
+
         dmesg_write(buf);
 
         // Periodic RTOS logging (every ~5 commands)
@@ -689,5 +837,6 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             wdog_ticks = 0;
         }
     }
+shell_exit:
 #endif
 }
