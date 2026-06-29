@@ -98,7 +98,9 @@ static MetalValue mv_num_fp_impl(int64_t fp);
 static MetalValue mv_num_impl(int64_t i);
 static MetalValue mv_bool_impl(int b);
 
-// Convenience aliases used throughout the file
+// Convenience aliases used throughout the file (internal use only).
+// These are #undef'd before the public wrapper definitions below to prevent
+// the preprocessor from mangling the public function signatures.
 #define mv_nil()      mv_nil_impl()
 #define mv_num_fp(x)  mv_num_fp_impl(x)
 #define mv_num(x)     mv_num_impl(x)
@@ -301,7 +303,7 @@ int metal_vm_add_constant(MetalVM *vm, MetalValue value) {
 }
 
 // ---------------------------------------------------------------------------
-// Value constructors — actual definitions (macros above forward them here)
+// Value constructors — actual static definitions
 // ---------------------------------------------------------------------------
 
 static MetalValue mv_nil_impl(void) {
@@ -322,7 +324,15 @@ static MetalValue mv_bool_impl(int b) {
     MetalValue v; v.type = MV_BOOL; v.as.boolean = b ? 1 : 0; return v;
 }
 
-/* Public (non-static) wrappers keep the external API symbols intact */
+// ---------------------------------------------------------------------------
+// Public (non-static) wrappers — must come AFTER the #undef block below so
+// the preprocessor does not expand the function names as macros.
+// ---------------------------------------------------------------------------
+#undef mv_nil
+#undef mv_num_fp
+#undef mv_num
+#undef mv_bool
+
 MetalValue mv_nil(void)           { return mv_nil_impl(); }
 MetalValue mv_num_fp(int64_t fp)  { return mv_num_fp_impl(fp); }
 MetalValue mv_num(int64_t i)      { return mv_num_impl(i); }
@@ -351,14 +361,14 @@ int metal_vm_push(MetalVM *vm, MetalValue value) {
 
 MetalValue metal_vm_pop(MetalVM *vm) {
     if (vm->sp <= 0) {
-        vm->error = 1; vm->error_msg = "stack underflow"; return mv_nil();
+        vm->error = 1; vm->error_msg = "stack underflow"; return mv_nil_impl();
     }
     return vm->stack[--vm->sp];
 }
 
 MetalValue metal_vm_peek(MetalVM *vm, int distance) {
     int idx = vm->sp - 1 - distance;
-    if (idx < 0) return mv_nil();
+    if (idx < 0) return mv_nil_impl();
     return vm->stack[idx];
 }
 
@@ -422,9 +432,9 @@ void metal_array_push(MetalVM *vm, int arr_idx, MetalValue val) {
 }
 
 MetalValue metal_array_get(MetalVM *vm, int arr_idx, int index) {
-    if (arr_idx < 0 || arr_idx >= vm->array_count) return mv_nil();
+    if (arr_idx < 0 || arr_idx >= vm->array_count) return mv_nil_impl();
     MetalArray *arr = &vm->arrays[arr_idx];
-    if (index < 0 || index >= arr->count) return mv_nil();
+    if (index < 0 || index >= arr->count) return mv_nil_impl();
     return arr->elems[index];
 }
 
@@ -523,6 +533,8 @@ static void pop_call_frame(MetalVM *vm) {
 
 // ---------------------------------------------------------------------------
 // Single-step execution
+// Note: mv_nil / mv_num / mv_num_fp / mv_bool macros were #undef'd above.
+// Use the _impl variants directly here to avoid any ambiguity.
 // ---------------------------------------------------------------------------
 
 int metal_vm_step(MetalVM *vm) {
@@ -536,12 +548,12 @@ int metal_vm_step(MetalVM *vm) {
 
     case OP_CONSTANT: {
         unsigned char idx = READ_BYTE();
-        metal_vm_push(vm, idx < vm->const_count ? vm->constants[idx] : mv_nil());
+        metal_vm_push(vm, idx < vm->const_count ? vm->constants[idx] : mv_nil_impl());
         break;
     }
-    case OP_NIL:   metal_vm_push(vm, mv_nil());    break;
-    case OP_TRUE:  metal_vm_push(vm, mv_bool(1));  break;
-    case OP_FALSE: metal_vm_push(vm, mv_bool(0));  break;
+    case OP_NIL:   metal_vm_push(vm, mv_nil_impl());    break;
+    case OP_TRUE:  metal_vm_push(vm, mv_bool_impl(1));  break;
+    case OP_FALSE: metal_vm_push(vm, mv_bool_impl(0));  break;
     case OP_POP:   metal_vm_pop(vm);               break;
     case OP_DUP:   metal_vm_push(vm, metal_vm_peek(vm, 0)); break;
 
@@ -557,7 +569,7 @@ int metal_vm_step(MetalVM *vm) {
         unsigned char idx = READ_BYTE();
         const char *name = (idx < vm->const_count && vm->constants[idx].type == MV_STR)
             ? metal_string_get(vm, vm->constants[idx].as.str_idx) : "";
-        MetalValue val = mv_nil();
+        MetalValue val = mv_nil_impl();
         scope_get(vm, fnv1a(name, (int)bm_strlen(name)), &val);
         metal_vm_push(vm, val);
         break;
@@ -587,7 +599,7 @@ int metal_vm_step(MetalVM *vm) {
     case OP_ADD: {
         MetalValue b = metal_vm_pop(vm), a = metal_vm_pop(vm);
         if (a.type == MV_NUM && b.type == MV_NUM)
-            metal_vm_push(vm, mv_num_fp(a.as.number + b.as.number));
+            metal_vm_push(vm, mv_num_fp_impl(a.as.number + b.as.number));
         else if (a.type == MV_STR && b.type == MV_STR) {
             const char *sa = metal_string_get(vm, a.as.str_idx);
             const char *sb = metal_string_get(vm, b.as.str_idx);
@@ -599,43 +611,43 @@ int metal_vm_step(MetalVM *vm) {
                 buf[la + lb] = '\0';
                 vm->heap_used += la + lb + 1;
                 metal_vm_push(vm, mv_str(vm, buf, la + lb));
-            } else metal_vm_push(vm, mv_nil());
-        } else metal_vm_push(vm, mv_nil());
+            } else metal_vm_push(vm, mv_nil_impl());
+        } else metal_vm_push(vm, mv_nil_impl());
         break;
     }
     case OP_SUB: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_num_fp(a.as.number-b.as.number):mv_nil()); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_num_fp_impl(a.as.number-b.as.number):mv_nil_impl()); break; }
     case OP_MUL: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_num_fp(fp_mul(a.as.number,b.as.number)):mv_nil()); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_num_fp_impl(fp_mul(a.as.number,b.as.number)):mv_nil_impl()); break; }
     case OP_DIV: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM&&b.as.number!=0)?mv_num_fp(fp_div(a.as.number,b.as.number)):mv_nil()); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM&&b.as.number!=0)?mv_num_fp_impl(fp_div(a.as.number,b.as.number)):mv_nil_impl()); break; }
     case OP_MOD: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM&&b.as.number!=0)?mv_num_fp(fp_mod(a.as.number,b.as.number)):mv_nil()); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM&&b.as.number!=0)?mv_num_fp_impl(fp_mod(a.as.number,b.as.number)):mv_nil_impl()); break; }
     case OP_NEGATE: { MetalValue a=metal_vm_pop(vm);
-        metal_vm_push(vm,a.type==MV_NUM?mv_num_fp(-a.as.number):mv_nil()); break; }
+        metal_vm_push(vm,a.type==MV_NUM?mv_num_fp_impl(-a.as.number):mv_nil_impl()); break; }
     case OP_NOT: { MetalValue a=metal_vm_pop(vm);
-        metal_vm_push(vm,mv_bool(a.type==MV_NIL||(a.type==MV_BOOL&&!a.as.boolean))); break; }
+        metal_vm_push(vm,mv_bool_impl(a.type==MV_NIL||(a.type==MV_BOOL&&!a.as.boolean))); break; }
     case OP_TRUTHY: { MetalValue a=metal_vm_pop(vm);
-        metal_vm_push(vm,mv_bool(!(a.type==MV_NIL||(a.type==MV_BOOL&&!a.as.boolean)))); break; }
+        metal_vm_push(vm,mv_bool_impl(!(a.type==MV_NIL||(a.type==MV_BOOL&&!a.as.boolean)))); break; }
 
     // ---- Bitwise (operate on integer part of Q32.32) -------------------
     case OP_BIT_AND: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?
-            mv_num(fp_to_int(a.as.number)&fp_to_int(b.as.number)):mv_nil()); break; }
+            mv_num_impl(fp_to_int(a.as.number)&fp_to_int(b.as.number)):mv_nil_impl()); break; }
     case OP_BIT_OR:  { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?
-            mv_num(fp_to_int(a.as.number)|fp_to_int(b.as.number)):mv_nil()); break; }
+            mv_num_impl(fp_to_int(a.as.number)|fp_to_int(b.as.number)):mv_nil_impl()); break; }
     case OP_BIT_XOR: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?
-            mv_num(fp_to_int(a.as.number)^fp_to_int(b.as.number)):mv_nil()); break; }
+            mv_num_impl(fp_to_int(a.as.number)^fp_to_int(b.as.number)):mv_nil_impl()); break; }
     case OP_BIT_NOT: { MetalValue a=metal_vm_pop(vm);
-        metal_vm_push(vm,a.type==MV_NUM?mv_num(~fp_to_int(a.as.number)):mv_nil()); break; }
+        metal_vm_push(vm,a.type==MV_NUM?mv_num_impl(~fp_to_int(a.as.number)):mv_nil_impl()); break; }
     case OP_SHIFT_LEFT:  { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?
-            mv_num(fp_to_int(a.as.number)<<(int)fp_to_int(b.as.number)):mv_nil()); break; }
+            mv_num_impl(fp_to_int(a.as.number)<<(int)fp_to_int(b.as.number)):mv_nil_impl()); break; }
     case OP_SHIFT_RIGHT: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?
-            mv_num(fp_to_int(a.as.number)>>(int)fp_to_int(b.as.number)):mv_nil()); break; }
+            mv_num_impl(fp_to_int(a.as.number)>>(int)fp_to_int(b.as.number)):mv_nil_impl()); break; }
 
     // ---- Comparisons ---------------------------------------------------
     case OP_EQUAL: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
@@ -647,7 +659,7 @@ int metal_vm_step(MetalVM *vm) {
             else if(a.type==MV_STR)  eq=(bm_strcmp(metal_string_get(vm,a.as.str_idx),metal_string_get(vm,b.as.str_idx))==0);
             else if(a.type==MV_PTR)  eq=(a.as.ptr==b.as.ptr);
         }
-        metal_vm_push(vm,mv_bool(eq)); break; }
+        metal_vm_push(vm,mv_bool_impl(eq)); break; }
     case OP_NOT_EQUAL: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
         int eq=0;
         if(a.type==b.type){
@@ -656,15 +668,15 @@ int metal_vm_step(MetalVM *vm) {
             else if(a.type==MV_NUM)  eq=(a.as.number==b.as.number);
             else if(a.type==MV_STR)  eq=(bm_strcmp(metal_string_get(vm,a.as.str_idx),metal_string_get(vm,b.as.str_idx))==0);
         }
-        metal_vm_push(vm,mv_bool(!eq)); break; }
+        metal_vm_push(vm,mv_bool_impl(!eq)); break; }
     case OP_GREATER:       { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool(a.as.number>b.as.number):mv_bool(0)); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool_impl(a.as.number>b.as.number):mv_bool_impl(0)); break; }
     case OP_GREATER_EQUAL: { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool(a.as.number>=b.as.number):mv_bool(0)); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool_impl(a.as.number>=b.as.number):mv_bool_impl(0)); break; }
     case OP_LESS:          { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool(a.as.number<b.as.number):mv_bool(0)); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool_impl(a.as.number<b.as.number):mv_bool_impl(0)); break; }
     case OP_LESS_EQUAL:    { MetalValue b=metal_vm_pop(vm),a=metal_vm_pop(vm);
-        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool(a.as.number<=b.as.number):mv_bool(0)); break; }
+        metal_vm_push(vm,(a.type==MV_NUM&&b.type==MV_NUM)?mv_bool_impl(a.as.number<=b.as.number):mv_bool_impl(0)); break; }
 
     // ---- Control flow --------------------------------------------------
     case OP_JUMP: { unsigned short off=READ_U16(); vm->ip+=(int)(short)off; break; }
@@ -719,7 +731,7 @@ int metal_vm_step(MetalVM *vm) {
     }
     case OP_ARRAY_LEN: {
         MetalValue a=metal_vm_pop(vm);
-        metal_vm_push(vm,mv_num((a.type==MV_ARR)?metal_array_len(vm,a.as.arr_idx):0)); break;
+        metal_vm_push(vm,mv_num_impl((a.type==MV_ARR)?metal_array_len(vm,a.as.arr_idx):0)); break;
     }
     case OP_GET_INDEX: {
         MetalValue idx=metal_vm_pop(vm),obj=metal_vm_pop(vm);
@@ -729,8 +741,8 @@ int metal_vm_step(MetalVM *vm) {
             const char *s=metal_string_get(vm,obj.as.str_idx);
             int i=(int)fp_to_int(idx.as.number), slen=(int)bm_strlen(s);
             if(i>=0&&i<slen){ char ch[1]; ch[0]=s[i]; metal_vm_push(vm,mv_str(vm,ch,1)); }
-            else metal_vm_push(vm,mv_nil());
-        } else metal_vm_push(vm,mv_nil());
+            else metal_vm_push(vm,mv_nil_impl());
+        } else metal_vm_push(vm,mv_nil_impl());
         break;
     }
     case OP_SET_INDEX: {
@@ -765,7 +777,7 @@ int metal_vm_step(MetalVM *vm) {
                 di=i; break;
             }
         }
-        if(di<0){metal_vm_push(vm,mv_nil());break;}
+        if(di<0){metal_vm_push(vm,mv_nil_impl());break;}
         for(int i=0;i<(int)count;i++){
             MetalValue val=metal_vm_pop(vm),key=metal_vm_pop(vm);
             if(vm->dicts[di].count<METAL_DICT_MAX_ENTRIES){
@@ -779,19 +791,19 @@ int metal_vm_step(MetalVM *vm) {
     }
     case OP_GET_PROPERTY: {
         unsigned char idx=READ_BYTE();
-        MetalValue key=(idx<vm->const_count)?vm->constants[idx]:mv_nil();
+        MetalValue key=(idx<vm->const_count)?vm->constants[idx]:mv_nil_impl();
         MetalValue obj=metal_vm_pop(vm);
         if(obj.type==MV_DICT&&key.type==MV_STR){
             MetalDict *d=&vm->dicts[obj.as.dict_idx];
-            MetalValue found=mv_nil();
+            MetalValue found=mv_nil_impl();
             for(int i=0;i<d->count;i++) if(d->key_str_idx[i]==key.as.str_idx){found=d->values[i];break;}
             metal_vm_push(vm,found);
-        } else metal_vm_push(vm,mv_nil());
+        } else metal_vm_push(vm,mv_nil_impl());
         break;
     }
     case OP_SET_PROPERTY: {
         unsigned char idx=READ_BYTE();
-        MetalValue key=(idx<vm->const_count)?vm->constants[idx]:mv_nil();
+        MetalValue key=(idx<vm->const_count)?vm->constants[idx]:mv_nil_impl();
         MetalValue val=metal_vm_pop(vm),obj=metal_vm_peek(vm,0);
         if(obj.type==MV_DICT&&key.type==MV_STR){
             MetalDict *d=&vm->dicts[obj.as.dict_idx];
@@ -849,12 +861,12 @@ int metal_vm_step(MetalVM *vm) {
 
     // ---- GPU no-ops on bare-metal RV64 ---------------------------------
     case OP_GPU_POLL_EVENTS:         break;
-    case OP_GPU_WINDOW_SHOULD_CLOSE: metal_vm_push(vm,mv_bool(0)); break;
-    case OP_GPU_GET_TIME:            metal_vm_push(vm,mv_num(0)); break;
-    case OP_GPU_KEY_PRESSED:         metal_vm_push(vm,mv_bool(0)); break;
-    case OP_GPU_KEY_DOWN:            metal_vm_push(vm,mv_bool(0)); break;
-    case OP_GPU_MOUSE_POS:           metal_vm_push(vm,mv_num(0)); metal_vm_push(vm,mv_num(0)); break;
-    case OP_GPU_MOUSE_DELTA:         metal_vm_push(vm,mv_num(0)); metal_vm_push(vm,mv_num(0)); break;
+    case OP_GPU_WINDOW_SHOULD_CLOSE: metal_vm_push(vm,mv_bool_impl(0)); break;
+    case OP_GPU_GET_TIME:            metal_vm_push(vm,mv_num_impl(0)); break;
+    case OP_GPU_KEY_PRESSED:         metal_vm_push(vm,mv_bool_impl(0)); break;
+    case OP_GPU_KEY_DOWN:            metal_vm_push(vm,mv_bool_impl(0)); break;
+    case OP_GPU_MOUSE_POS:           metal_vm_push(vm,mv_num_impl(0)); metal_vm_push(vm,mv_num_impl(0)); break;
+    case OP_GPU_MOUSE_DELTA:         metal_vm_push(vm,mv_num_impl(0)); metal_vm_push(vm,mv_num_impl(0)); break;
     case OP_GPU_UPDATE_INPUT:        break;
     case OP_GPU_BEGIN_COMMANDS:      break;
     case OP_GPU_END_COMMANDS:        break;
