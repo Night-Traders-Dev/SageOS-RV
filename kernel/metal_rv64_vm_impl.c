@@ -329,6 +329,16 @@ int metal_rv64_vm_load_binary(MetalRV64VM *vm, const unsigned char *data, int si
     return 0;
 }
 
+void metal_rv64_vm_register_builtin(MetalRV64VM *vm, const char *name) {
+    int name_idx = rv_string_intern(vm, name, rv_strlen(name));
+    int d_idx = rv_dict_new(vm);
+    rv_dict_set(vm, d_idx,
+        rv_string_intern(vm, "__builtin__", 11),
+        (MetalValue){MV_STR, {.str_idx = name_idx}});
+    rv_dict_set(vm, vm->global_dict_idx, name_idx,
+        (MetalValue){MV_DICT, {.dict_idx = d_idx}});
+}
+
 RV64Instruction rv64_decode(unsigned int raw) {
     RV64Instruction inst;
     inst.opcode = raw & 0x7F;
@@ -735,6 +745,51 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             if (vm->x[10].type == MV_NUM) {
                                 vm->x[10] = mv_num(fp_to_int(vm->x[10].as.number));
                             }
+                        } else if (rv_strcmp(b_name, "pass") == 0) {
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "len") == 0) {
+                            MetalValue obj = vm->x[10];
+                            if (obj.type == MV_ARR)
+                                vm->x[10] = mv_num(rv_array_len(vm, obj.as.arr_idx));
+                            else if (obj.type == MV_STR) {
+                                const char *s = rv_string_get(vm, obj.as.str_idx);
+                                vm->x[10] = mv_num(rv_strlen(s));
+                            } else
+                                vm->x[10] = mv_num(0);
+                        } else if (rv_strcmp(b_name, "push") == 0) {
+                            MetalValue arr_obj = vm->x[10];
+                            MetalValue elem = vm->x[11];
+                            if (arr_obj.type == MV_ARR) {
+                                rv_array_push(vm, arr_obj.as.arr_idx, elem);
+                                vm->x[10] = arr_obj;
+                            }
+                        } else if (rv_strcmp(b_name, "mem_write") == 0) {
+                            int64_t addr = (vm->x[10].type == MV_NUM) ? fp_to_int(vm->x[10].as.number) : 0;
+                            int64_t val  = (vm->x[11].type == MV_NUM) ? fp_to_int(vm->x[11].as.number) : 0;
+                            int64_t sz   = (vm->x[12].type == MV_NUM) ? fp_to_int(vm->x[12].as.number) : 1;
+                            if (sz == 1) *(volatile uint8_t *)(uintptr_t)addr = (uint8_t)val;
+                            else if (sz == 2) *(volatile uint16_t *)(uintptr_t)addr = (uint16_t)val;
+                            else if (sz == 4) *(volatile uint32_t *)(uintptr_t)addr = (uint32_t)val;
+                            else if (sz == 8) *(volatile uint64_t *)(uintptr_t)addr = (uint64_t)val;
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "mem_read") == 0) {
+                            int64_t addr = (vm->x[10].type == MV_NUM) ? fp_to_int(vm->x[10].as.number) : 0;
+                            int64_t sz   = (vm->x[11].type == MV_NUM) ? fp_to_int(vm->x[11].as.number) : 1;
+                            int64_t result = 0;
+                            if (sz == 1) result = *(volatile uint8_t *)(uintptr_t)addr;
+                            else if (sz == 2) result = *(volatile uint16_t *)(uintptr_t)addr;
+                            else if (sz == 4) result = *(volatile uint32_t *)(uintptr_t)addr;
+                            else if (sz == 8) result = (int64_t)*(volatile uint64_t *)(uintptr_t)addr;
+                            vm->x[10] = mv_num(result);
+                        } else if (rv_strcmp(b_name, "SRVM") == 0) {
+                            int d_idx = rv_dict_new(vm);
+                            rv_dict_set(vm, d_idx,
+                                rv_string_intern(vm, "__type__", 8),
+                                (MetalValue){MV_STR, {.str_idx = rv_string_intern(vm, "instance", 8)}});
+                            rv_dict_set(vm, d_idx,
+                                rv_string_intern(vm, "__class__", 9),
+                                func_obj);
+                            vm->x[10] = (MetalValue){MV_DICT, {.dict_idx = d_idx}};
                         }
                         vm->pc += 4;
                         return;

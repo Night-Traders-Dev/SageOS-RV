@@ -239,6 +239,9 @@ void metal_rv64_vm_init(MetalRV64VM* vm);
 // Load compiled SGRV binary into VM
 int metal_rv64_vm_load_binary(MetalRV64VM* vm, const unsigned char* data, int size);
 
+// Register a name as a built-in function in the global namespace
+void metal_rv64_vm_register_builtin(MetalRV64VM* vm, const char* name);
+
 // Execute until halt or error
 int metal_rv64_vm_run(MetalRV64VM* vm);
 

@@ -80,22 +80,18 @@ cd SageOS-RV
 ```
 SBIK!
 [MetalRV64] Initializing...
-[MetalRV64] Loading kmain.sgvm...
-[MetalRV64] Running kernel...
+[MetalRV64] Running shell...
 
 ========================================
-  SageOS-RV v0.1.0-alpha
+  SageOS-RV v0.2.0
   Pure Sage Operating System
   RISC-V 64 | QEMU virt
 ========================================
 
-[1/7] Console initialized
-[2/7] Memory: ...
-[3/7] Interrupts...
-[4/7] Timer...
-[5/7] DTB...
-[6/7] SRVM init...
-[7/7] Launching shell.sgvm via MetalVM...
+[OK] Console initialized
+[OK] MetalRV64: shell loaded
+
+Type 'help' for commands.
 
 sage#
 ```
@@ -110,8 +106,8 @@ sage#
 | `clean` | Remove build artifacts |
 | `qemu` | Launch QEMU with the built kernel |
 | `build-run` | `build` then `qemu` |
-| `compile-kernel` | `sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv` |
-| `run-kernel` | `sagevm run kernel/kmain.sgvm --riscv` (host-side test) |
+| `compile-kernel` | `sagevm compile kernel/kmain.sage kernel/kmain.sgvm` |
+| `run-kernel` | `sagevm run kernel/kmain.sgvm` (host-side test) |
 | `compile-shell` | `sagevm compile shell/shell.sage shell/shell.sgvm --riscv` |
 | `run-shell` | `sagevm run shell/shell.sgvm --riscv` (host-side test) |
 | `setup-srvm` | Copy SRVM sources from SageVM repo into `kernel/` |
@@ -191,8 +187,9 @@ SRVM (`kernel/srvm_vm.sage` + `kernel/srvm_core.sage`) is a pure-Sage scripting 
 
 ## Known Limitations
 
-- **Global initialization**: The kernel Sagelang code uses `OBJ_GET_GLOBAL` which requires pre-populated globals (`mem_write`, `UART_BASE`, etc.). The MetalRV64 VM currently lacks built-in global registration — the kernel executes chunk 0 which attempts to resolve unpopulated globals.
-- **sstatus.SIE WARL-0**: On QEMU's `-cpu rv64` virt machine, writing to `sstatus.SIE` is silently ignored. Poll `SIP.STIP` as a workaround.
+- **Kernel in C fallback**: `kmain.sage` uses SRVM with module imports that need runtime global resolution. The kernel boot path currently skips Sage kernel init and goes directly to the shell via MetalRV64 VM.
+- **Shell**: Runs as SGRV bytecode through the MetalRV64 RISC-V register VM. Limited to Sage builtins (print, etc.). Full interactive shell with command processing requires SRVM runtime integration.
+- **sstatus.SIE WARL-0**: On QEMU's `-cpu rv64` virt machine, supervisor interrupts are emulation-restricted. Poll `SIP.STIP` as a workaround.
 
 ---
 

@@ -232,7 +232,7 @@ compile_kernel_sgvm() {
     [ -f "${src}" ] || fail "kernel/kmain.sage not found"
     sagevm_check || fail "sagevm not found -- cannot compile kmain.sgvm"
     info "Compiling kernel/kmain.sage -> kernel/kmain.sgvm ..."
-    "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1 \
+    "$SAGEVM" compile "${src}" "${out}" 2>&1 \
         && ok "kmain.sgvm ($(wc -c < "${out}") bytes)" \
         || fail "kmain.sage compilation failed"
 }
@@ -309,7 +309,7 @@ cmd_run_kernel() {
     local sgvm="${SCRIPT_DIR}/kernel/kmain.sgvm"
     [ -f "${sgvm}" ] || fail "kernel/kmain.sgvm not found."
     sagevm_check || fail "sagevm not found."
-    "$SAGEVM" run "${sgvm}" --riscv
+    "$SAGEVM" run "${sgvm}"
 }
 cmd_compile_shell() { mkdir -p "${SCRIPT_DIR}/shell"; compile_shell_sgvm; }
 cmd_run_shell() {

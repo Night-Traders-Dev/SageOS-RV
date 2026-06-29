@@ -238,9 +238,11 @@ int metal_vm_load_binary(MetalVM *vm, const unsigned char *data, int size) {
         metal_vm_load(vm, data, size);
         return 1;
     }
+    // SGVM header: 4-byte magic + 4-byte version, then sections
     int pos = 8;
     const unsigned char *main_code = data;
     int main_length = 0;
+    int found_section = 0;
     while (pos + 5 <= size) {
         unsigned char sid = data[pos];
         unsigned int  slen = bm_read_u32(data + pos + 1);
@@ -249,6 +251,7 @@ int metal_vm_load_binary(MetalVM *vm, const unsigned char *data, int size) {
         if (sid == SGVM_SECTION_CODE) {
             main_code   = data + pos;
             main_length = (int)slen;
+            found_section = 1;
         } else if (sid == SGVM_SECTION_CONSTANTS) {
             int cpos = 0;
             if ((int)slen < 2) { pos += (int)slen; continue; }
@@ -287,7 +290,12 @@ int metal_vm_load_binary(MetalVM *vm, const unsigned char *data, int size) {
         }
         pos += (int)slen;
     }
-    metal_vm_load(vm, main_code, main_length);
+    if (!found_section && size > 8) {
+        // No sections found — load raw bytecode after 8-byte header
+        metal_vm_load(vm, data + 8, size - 8);
+    } else {
+        metal_vm_load(vm, main_code, main_length);
+    }
     return 1;
 }
 
