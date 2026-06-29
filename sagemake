@@ -358,8 +358,8 @@ cmd_build() {
     kernel_sgvm_obj=$(embed_kernel_sgvm)
     shell_sgvm_obj=$(embed_shell_sgvm)
 
-    ## 4. RTOS
-    compile_rtos
+    ## 4. RTOS (pure Sage — no C compilation needed)
+    # SageRTOS is compiled as part of the kernel .sgvm and runs inside MetalRV64VM
 
     ## 5. MetalVM
     METAL_OBJS=()
@@ -423,9 +423,7 @@ cmd_build() {
     ok "Created sageos.bin"
 
     printf "\n" >&2
-    rtos_available \
-        && printf "${GREEN}  [OK]${RESET}   RTOS: SageRTOS RV64 linked\n" >&2 \
-        || printf "${YELLOW}  [WARN]${RESET} RTOS: not linked (run ./sagemake setup-rtos)\n" >&2
+    printf "${GREEN}  [OK]${RESET}   RTOS: SageRTOS (pure Sage)\n" >&2
     printf "${GREEN}  [OK]${RESET}   Kernel: kmain.sgvm embedded as .sgvm_kernel\n" >&2
     printf "${GREEN}  [OK]${RESET}   Shell:  shell.sgvm  embedded as .sgvm_shell\n" >&2
     printf "\n  ${DIM}Build complete.${RESET}\n\n" >&2
