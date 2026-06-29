@@ -173,6 +173,12 @@ SageOS-RV/
 │   │   ├── stack.sage            TCP/IP: ETH, ARP, IPv4, ICMP, UDP, TCP
 │   │   ├── dhcp.sage             DHCP client
 │   │   └── wifi_net.sage         WiFi-to-network bridge
+│   ├── crypto/                   Cryptographic library (pure Sage)
+│   │   ├── sha256.sage           SHA-256 (FIPS 180-4 compliant)
+│   │   └── hmac.sage             HMAC-SHA256 (RFC 2104)
+│   ├── ssh/                      SSH client (pure Sage)
+│   │   ├── ssh_client.sage       SSH-2.0 client (RFC 4251-4254)
+│   │   └── cluster_monitor.sage  Multi-node RAM monitor
 │   ├── vfs.sage                  Virtual File System
 │   ├── rootfs.sage               Embedded rootfs driver (SRFS)
 │   ├── dmesg.sage                Persistent diagnostic log
@@ -254,6 +260,9 @@ Built-in commands via `shell_exec()` builtin (dispatched in C for reliable strin
 - **TCP/IP stack** — Ethernet, ARP, IPv4, ICMP, UDP, TCP
 - **DHCP client** — DISCOVER → OFFER → REQUEST → ACK
 - **WiFi integration** — connect + DHCP + interface config in one call
+- **SSH client** — SSH-2.0 protocol (RFC 4251-4254): KEX, auth, channels, command exec
+- **Crypto library** — SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 2104)
+- **Cluster monitor** — SSH into 3 nodes, check RAM, run cleanup when below 20%
 
 ### C → Sage Porting Progress
 
