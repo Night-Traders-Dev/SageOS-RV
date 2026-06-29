@@ -221,21 +221,27 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         }
         buf[pos] = '\0';
         uart_puts("\n");
-        /* Simple command dispatch */
+        /* Command dispatch — mirrors rootfs/bin/ tools */
         if (bv_strcmp(buf, "help") == 0) {
-            uart_puts("Commands: help version about clear mem halt\n");
+            uart_puts("Commands: help version about clear dmesg ls mem ps halt\n");
         } else if (bv_strcmp(buf, "version") == 0) {
             uart_puts("SageOS-RV v0.3.0  RISC-V 64  C-Only Kernel\n");
         } else if (bv_strcmp(buf, "about") == 0) {
             uart_puts("SageOS-RV: Pure Sage OS for RISC-V 64\n");
         } else if (bv_strcmp(buf, "clear") == 0) {
             uart_puts("\e[2J\e[H");
+        } else if (bv_strcmp(buf, "dmesg") == 0) {
+            uart_puts("dmesg: 256 msgs @ 0x87010000, warm-boot persistent\n");
+        } else if (bv_strcmp(buf, "ls") == 0) {
+            uart_puts("/bin: help version about clear dmesg ls mem ps halt\n");
         } else if (bv_strcmp(buf, "mem") == 0) {
-            uart_puts("Memory: 256 pages, 1 MiB, PMM bump allocator\n");
+            uart_puts("Memory: 256 pages (1 MiB), PMM bump allocator\n");
+        } else if (bv_strcmp(buf, "ps") == 0) {
+            uart_puts("PID  NAME        STATE\n  0  shell       RUNNING\n");
         } else if (bv_strcmp(buf, "halt") == 0) {
             uart_puts("Halting...\n"); break;
         } else if (buf[0] != '\0') {
-            uart_puts("Unknown: "); uart_puts(buf); uart_puts("\n");
+            uart_puts(buf); uart_puts(": command not found\n");
         }
         uart_puts("\n");
     }
