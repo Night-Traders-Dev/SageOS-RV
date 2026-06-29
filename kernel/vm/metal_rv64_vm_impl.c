@@ -351,6 +351,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "readline");
     metal_rv64_vm_register_builtin(vm, "read");
     metal_rv64_vm_register_builtin(vm, "input");
+    metal_rv64_vm_register_builtin(vm, "streq");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
 
@@ -832,6 +833,17 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                 rv_string_intern(vm, "__class__", 9),
                                 func_obj);
                             vm->x[10] = (MetalValue){MV_DICT, {.dict_idx = d_idx}};
+                        } else if (rv_strcmp(b_name, "streq") == 0) {
+                            // streq(a, b): compare two strings, return 1 if equal, 0 if not
+                            MetalValue a = vm->x[10];
+                            MetalValue b = vm->x[11];
+                            int eq = 0;
+                            if (a.type == MV_STR && b.type == MV_STR) {
+                                const char *sa = rv_string_get(vm, a.as.str_idx);
+                                const char *sb = rv_string_get(vm, b.as.str_idx);
+                                eq = (rv_strcmp(sa, sb) == 0) ? 1 : 0;
+                            }
+                            vm->x[10] = mv_num(eq);
                         }
                         vm->pc += 4;
                         return;
