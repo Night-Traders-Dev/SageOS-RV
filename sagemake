@@ -452,7 +452,8 @@ cmd_qemu() {
     local smp="${QEMU_SMP:-1}"
     local ram="${QEMU_RAM:-128M}"
     $QEMU -machine "$machine" -cpu "$cpu" -smp "$smp" -m "$ram" \
-        -nographic -bios "$OPENSBI" $kernel_arg -serial mon:stdio 2>&1 || true
+        -display none -chardev stdio,id=char0,mux=off \
+        -serial chardev:char0 -bios "$OPENSBI" $kernel_arg 2>&1 || true
 }
 
 cmd_flash() {
