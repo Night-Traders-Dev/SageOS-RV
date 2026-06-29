@@ -27,7 +27,10 @@
 /* --------------------------------------------------------------------------
  * UART 16550A  (QEMU virt / LicheeRV Nano base address)
  * -------------------------------------------------------------------------- */
+/* UART base — from build system (-DUART_BASE) or board default */
+#ifndef UART_BASE
 #define UART_BASE  0x10000000UL
+#endif
 #define UART_THR   0
 #define UART_RBR   0
 #define UART_IER   1

@@ -96,8 +96,8 @@ KERNEL_SRVM="${SCRIPT_DIR}/kernel/srvm"
 KERNEL_CORE="${SCRIPT_DIR}/kernel/core"
 
 ## Bare-metal compile flags
-BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
-BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM"
+BM_CFLAGS="${BM_ARCH} -nostdlib -ffreestanding -O2"
+BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_STACK_TOP=${STACK_TOP} -DCONFIG_TIMER_FREQ=${TIMER_FREQ}"
 
 ## Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
@@ -440,7 +440,7 @@ cmd_clean() {
 }
 
 cmd_qemu() {
-    info "Launching QEMU (RISC-V 64 virt)..."
+    info "Launching QEMU ($BOARD_NAME)..."
     local kernel_elf="${BUILD_DIR}/sageos.elf"
     local kernel_bin="${IMAGE_DIR}/sageos.bin"
     local kernel_arg
@@ -448,8 +448,24 @@ cmd_qemu() {
     elif [ -f "$kernel_bin" ]; then kernel_arg="-kernel $kernel_bin"
     else fail "No kernel image. Run './sagemake build' first."
     fi
-    $QEMU -machine virt -cpu rv64 -smp 1 -m 128M -nographic \
+    local machine="${QEMU_MACHINE:-virt}"
+    local cpu="${QEMU_CPU:-rv64}"
+    local smp="${QEMU_SMP:-1}"
+    local ram="${QEMU_RAM:-128M}"
+    local extra="${QEMU_EXTRA:--nographic}"
+    $QEMU -machine "$machine" -cpu "$cpu" -smp "$smp" -m "$ram" $extra \
         -bios "$OPENSBI" $kernel_arg -serial mon:stdio 2>&1 || true
+}
+
+cmd_flash() {
+    info "Flash image for $BOARD_NAME..."
+    local img="${IMAGE_DIR}/sageos.bin"
+    [ -f "$img" ] || fail "No image. Run './sagemake build' first."
+    local dev="${SD_DEVICE:-/dev/mmcblk0}"
+    info "Writing $img to $dev..."
+    info "(Requires root. Use: sudo ./sagemake flash)"
+    sudo dd if="$img" of="$dev" bs=1M conv=fsync status=progress \
+        && ok "Flashed to $dev" || fail "Flash failed"
 }
 
 cmd_build_run() { cmd_build; cmd_qemu; }
@@ -487,6 +503,7 @@ case "${1:-help}" in
     clean)           cmd_clean ;;
     qemu)            cmd_qemu ;;
     build-run)       cmd_build_run ;;
+    flash)           cmd_flash ;;
     image)           cmd_image ;;
     test)            cmd_test ;;
     version)         cmd_version ;;

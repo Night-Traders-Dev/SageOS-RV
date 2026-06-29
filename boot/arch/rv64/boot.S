@@ -1,10 +1,19 @@
 ## boot/arch/rv64/boot.S — RISC-V 64 boot assembly for SageOS
-## Entry point after OpenSBI hands off in S-mode at 0x80200000
+## Entry point after OpenSBI hands off in S-mode.
 ##
-## Uses SBI legacy ecalls for console (guaranteed to work in S-mode
-## via OpenSBI M-mode handler) before initializing direct UART access.
+## Board configuration passed via GCC defines:
+##   UART_BASE        — 16550A UART MMIO base address
+##   CONFIG_STACK_TOP — Initial stack pointer address
+##   CONFIG_MEM_BASE  — DRAM base address
 
 #include "sbi.h"
+
+#ifndef UART_BASE
+#  define UART_BASE  0x10000000
+#endif
+#ifndef CONFIG_STACK_TOP
+#  define CONFIG_STACK_TOP  0x81000000
+#endif
 
     .section .text.boot
     .globl _start
@@ -18,8 +27,8 @@ _start:
     csrw satp, zero
     sfence.vma
 
-    ## Set up stack pointer - use a fixed high address in RAM
-    li   sp, 0x81000000
+    ## Set up stack pointer from board configuration
+    li   sp, CONFIG_STACK_TOP
 
     ## Output 'S' to prove we're running, using SBI ecall
     li   a7, SBI_CONSOLE_PUTCHAR
@@ -35,7 +44,7 @@ _start:
     ecall
 
     ## Initialize UART (16550A) for direct kernel access
-    li   t0, 0x10000000      ## UART base
+    li   t0, UART_BASE       ## UART base (board-specific)
     sb   zero, 1(t0)         ## IER = 0 (disable interrupts)
     li   t1, 0x03
     sb   t1, 3(t0)           ## LCR = 0x03 (8N1, DLAB=0)
