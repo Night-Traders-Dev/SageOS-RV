@@ -85,6 +85,8 @@ uint64_t pmm_alloc(void) {
 /* --------------------------------------------------------------------------
  * Linker symbols — embedded .sgvm blobs
  * -------------------------------------------------------------------------- */
+extern const uint8_t _binary_kernel_kmain_sgvm_start[];
+extern const uint8_t _binary_kernel_kmain_sgvm_end[];
 extern const uint8_t _binary_shell_shell_sgvm_start[];
 extern const uint8_t _binary_shell_shell_sgvm_end[];
 
@@ -110,7 +112,29 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("SBIK!\n");
     uart_puts("[MetalRV64] Initializing...\n");
 
-    /* Skip kernel load — go straight to shell via RV64 VM */
+    /* Run kernel blob */
+    const uint8_t *kblob = _binary_kernel_kmain_sgvm_start;
+    int            ksz   = (int)(_binary_kernel_kmain_sgvm_end - kblob);
+
+    if (ksz > 8) {
+        MetalRV64VM kernel_vm;
+        metal_rv64_vm_init(&kernel_vm);
+        kernel_vm.write_char = uart_putc;
+        kernel_vm.read_char  = uart_getchar;
+
+        int err = metal_rv64_vm_load_binary(&kernel_vm, kblob, ksz);
+        if (err == 0) {
+            for (int i = 0; i < kernel_vm.chunk_count; i++) {
+                kernel_vm.current_chunk_idx = i;
+                kernel_vm.bytecode = kernel_vm.chunks[i];
+                kernel_vm.bytecode_length = kernel_vm.chunk_lengths[i];
+                kernel_vm.pc = 0;
+                metal_rv64_vm_run(&kernel_vm);
+            }
+        }
+    }
+
+    /* Run shell blob */
     const uint8_t *sblob = _binary_shell_shell_sgvm_start;
     int            ssz   = (int)(_binary_shell_shell_sgvm_end - sblob);
 

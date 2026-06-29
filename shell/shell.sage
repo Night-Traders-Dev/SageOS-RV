@@ -1,12 +1,11 @@
-print("========================================\n")
-print("  SageOS-RV v0.2.0\n")
-print("  Pure Sage Operating System\n")
-print("  RISC-V 64 | QEMU virt\n")
-print("========================================\n")
-print("\n")
+## shell/shell.sage — SageOS-RV Interactive Shell
+##
+## Compiled to SGRV via sagevm compile --riscv.
+## Runs inside MetalRV64VM.
+
 print("[OK] Console initialized\n")
 print("[OK] MetalRV64: shell loaded\n")
 print("\n")
-print("Type 'help' for commands.\n")
+print("SageOS-RV Shell — type 'help' for commands\n")
 print("\n")
 print("sage# \n")
