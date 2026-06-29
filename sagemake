@@ -233,6 +233,10 @@ compile_metalvm() {
 ## sgvm compile helpers
 ## ---------------------------------------------------------------------------
 compile_kernel_sgvm() {
+    if [ "${SAGEVM_ENABLED:-1}" = "0" ]; then
+        warn "SageVM disabled — skipping kernel .sgvm compilation"
+        return 0
+    fi
     local src="${SCRIPT_DIR}/kernel/core/kmain.sage"
     local out="${SCRIPT_DIR}/kernel/core/kmain.sgvm"
     [ -f "${src}" ] || fail "kernel/core/kmain.sage not found"
@@ -244,6 +248,10 @@ compile_kernel_sgvm() {
 }
 
 compile_shell_sgvm() {
+    if [ "${SAGEVM_ENABLED:-1}" = "0" ]; then
+        warn "SageVM disabled — skipping shell .sgvm compilation"
+        return 0
+    fi
     local src="${SCRIPT_DIR}/shell/shell.sage"
     local out="${SCRIPT_DIR}/shell/shell.sgvm"
     [ -f "${src}" ] || fail "shell/shell.sage not found"
@@ -363,10 +371,12 @@ cmd_build() {
     compile_kernel_sgvm
     compile_shell_sgvm
 
-    ## 3. Embed blobs
-    local kernel_sgvm_obj shell_sgvm_obj
-    kernel_sgvm_obj=$(embed_kernel_sgvm)
-    shell_sgvm_obj=$(embed_shell_sgvm)
+    ## 3. Embed blobs (skip if SageVM disabled)
+    local kernel_sgvm_obj="" shell_sgvm_obj=""
+    if [ "${SAGEVM_ENABLED:-1}" != "0" ]; then
+        kernel_sgvm_obj=$(embed_kernel_sgvm)
+        shell_sgvm_obj=$(embed_shell_sgvm)
+    fi
 
     ## 4. RTOS (pure Sage — no C compilation needed)
     # SageRTOS is compiled as part of the kernel .sgvm and runs inside MetalRV64VM
