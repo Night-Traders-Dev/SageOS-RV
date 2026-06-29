@@ -20,9 +20,10 @@ echo ""
 printf "${CYAN}[CHECK]${RESET} Validating...\n"
 assert_contains "Banner"           "SageOS-RV"
 assert_contains "Shell prompt"     "sage#"
-assert_contains "Echo: hello"      "hello"
-assert_contains "Echo: world"      "world"
-assert_contains "Echo: foo"        "foo"
+assert_contains "Input: hello"     "You typed: " && [ "$(grep -c 'hello' /tmp/sageos_test_out.txt)" -ge 2 ]
+assert_contains "Input: world"     "world"
+assert_contains "Input: foo"       "foo"
+assert_contains "Shell done"       "Shell done"
 
 echo ""
 printf "${CYAN}[SUMMARY]${RESET} Tests: $((PASS + FAIL)) | ${GREEN}Passed: $PASS${RESET} | ${RED}Failed: $FAIL${RESET}\n"
