@@ -88,10 +88,12 @@ proc rtos_schedule():
     return -1
 
 proc rtos_run():
-    ## Main scheduler loop with timer-based preemption
+    ## Main scheduler loop with timer-based preemption and watchdog kick
     print("SageRTOS: starting scheduler (")
     print(rtos_task_count)
     print(" tasks)\n\n")
+
+    let wdog_counter = 0
 
     while rtos_running and rtos_task_count > 0:
         ## Check for timer tick (preemption)
@@ -121,6 +123,12 @@ proc rtos_run():
         task.entry()
         if task.state == TASK_RUNNING:
             task.state = TASK_READY
+
+        ## Periodic watchdog kick (every ~1 second in real ticks)
+        wdog_counter = wdog_counter + 1
+        if wdog_counter >= 10:
+            wdog_kick()
+            wdog_counter = 0
 
 proc rtos_idle():
     ## Called when no tasks are ready

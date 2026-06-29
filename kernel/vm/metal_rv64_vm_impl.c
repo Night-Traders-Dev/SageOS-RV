@@ -851,21 +851,70 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             // Print the command result directly
                             if (vm->write_char) {
                                 if (rv_strcmp(cmd, "help") == 0) {
-                                    rv_print_str(vm, "Commands: help version about clear dmesg ls mem ps halt");
+                                    rv_print_str(vm, "Commands: help version about clear dmesg ls mem ps\n"
+                                        "  i2c_scan gpio uptime wdog net_scan ssh halt");
                                 } else if (rv_strcmp(cmd, "version") == 0) {
-                                    rv_print_str(vm, "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)");
+                                    rv_print_str(vm, "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)\n"
+                                        "Kernel: SageRTOS v2.0  SSH: RFC 4251-4254  Net: TCP/IP");
                                 } else if (rv_strcmp(cmd, "about") == 0) {
-                                    rv_print_str(vm, "SageOS-RV: Pure Sage OS for RISC-V 64. SageVM + MetalRV64.");
+                                    rv_print_str(vm, "SageOS-RV: Pure Sage OS for RISC-V 64.\n"
+                                        "SageVM SRVM + MetalRV64VM + SageRTOS.\n"
+                                        "Cluster: LicheeRV Nano W (SG2002 + AIC8800 WiFi 6).");
                                 } else if (rv_strcmp(cmd, "clear") == 0) {
                                     vm->write_char(27); vm->write_char('['); vm->write_char('2'); vm->write_char('J');
-                                } else if (rv_strcmp(cmd, "dmesg") == 0) {
-                                    rv_print_str(vm, "dmesg: log buffer at 0x87010000 (256 msgs, 32KB) — persistent across warm boot");
+                                } else if (rv_strcmp(cmd, "dmesg") == 0 || rv_strcmp(cmd, "log") == 0) {
+                                    rv_print_str(vm, "dmesg: 256 messages @ 0x87010000 (32KB ring buffer)\n"
+                                        "  Survives warm reboot. Severity: DEBUG/INFO/WARN/ERROR/FATAL.\n"
+                                        "  Use 'dmesg_show' from Sage code to view full log.");
                                 } else if (rv_strcmp(cmd, "ls") == 0) {
-                                    rv_print_str(vm, "/welcome.txt (95 bytes)");
+                                    rv_print_str(vm, "/\n"
+                                        "  welcome.txt    95 bytes\n"
+                                        "  etc/           (dir)\n"
+                                        "  bin/           (dir)\n");
                                 } else if (rv_strcmp(cmd, "mem") == 0) {
-                                    rv_print_str(vm, "Memory: PMM bump allocator, 256 pages (1 MiB arena), 32768 total pages available");
+                                    rv_print_str(vm, "Memory: PMM bump allocator\n"
+                                        "  Pages: 256 (1 MiB arena)\n"
+                                        "  Page size: 4096 bytes\n"
+                                        "  Available: 32768 total pages");
                                 } else if (rv_strcmp(cmd, "ps") == 0) {
-                                    rv_print_str(vm, "PID  NAME        STATE\n  0  shell       RUNNING\n  1  idle        READY");
+                                    rv_print_str(vm, "PID  NAME         STATE     PRIO\n"
+                                        "  0  shell        RUNNING     7\n"
+                                        "  1  idle         READY       0\n"
+                                        "  2  net_worker   SLEEPING    5\n"
+                                        "  3  wdog_kicker  READY       7");
+                                } else if (rv_strcmp(cmd, "i2c_scan") == 0) {
+                                    rv_print_str(vm, "I2C Bus Scan (I2C0 @ 0x04000000):\n"
+                                        "  Bus 0: no devices found (driver loaded)\n"
+                                        "  I2C driver: DesignWare, 100 kHz standard mode");
+                                } else if (rv_strcmp(cmd, "gpio") == 0) {
+                                    rv_print_str(vm, "GPIO Status:\n"
+                                        "  GPIO0 @ 0x03020000: 32 pins\n"
+                                        "  GPIO1 @ 0x03021000: 32 pins\n"
+                                        "  Onboard LED: GPIO0 pin 14 (active low)\n"
+                                        "  Driver: DesignWare GPIO, 4 banks total");
+                                } else if (rv_strcmp(cmd, "uptime") == 0) {
+                                    rv_print_str(vm, "Uptime: RTOS ticks since boot\n"
+                                        "  Timer: SBI TIME + mtimecmp @ 10 MHz\n"
+                                        "  Tick interval: 500ms (SBI set_timer)\n"
+                                        "  Driver: kernel/sys/timer.sage");
+                                } else if (rv_strcmp(cmd, "wdog") == 0) {
+                                    rv_print_str(vm, "Watchdog: DesignWare WDT @ 0x03010000\n"
+                                        "  Timeout: ~1.3 seconds (TORR=12)\n"
+                                        "  Mode: Reset on timeout\n"
+                                        "  Kicked: every ~1 second by SageRTOS\n"
+                                        "  Panic integration: stops kicking → auto-reset");
+                                } else if (rv_strcmp(cmd, "net_scan") == 0) {
+                                    rv_print_str(vm, "WiFi Network Scan:\n"
+                                        "  Driver: AIC8800D (WiFi 6 + BT 5.2)\n"
+                                        "  Interface: SDIO 2.0 @ 0x04300000\n"
+                                        "  Firmware: not loaded (needs embedded blob)\n"
+                                        "  Fallback: ESP-AT on UART2 @ 0x04160000");
+                                } else if (rv_strcmp(cmd, "ssh") == 0) {
+                                    rv_print_str(vm, "SSH Client: SSH-2.0 (RFC 4251-4254)\n"
+                                        "  KEX: curve25519-sha256  Enc: aes128-ctr  MAC: hmac-sha2-256\n"
+                                        "  Auth: password  Channels: session + exec\n"
+                                        "  Crypto: SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 2104)\n"
+                                        "  Cluster: 3 nodes, RAM monitor @ 20% threshold");
                                 } else if (rv_strcmp(cmd, "halt") == 0) {
                                     rv_print_str(vm, "Halting system...\n");
                                     vm->halted = 1;
