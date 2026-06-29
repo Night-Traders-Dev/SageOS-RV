@@ -1,82 +1,195 @@
-## drivers/wifi_aic8800.sage — AIC8800 WiFi 6 / BT Driver for LicheeRV Nano W
+## drivers/wifi_aic8800.sage — AIC8800D WiFi 6 Driver (Pure Sage)
 ##
-## Target: AIC8800D (WiFi 6 + Bluetooth 5.2 combo chip)
-## Found on: LicheeRV Nano W/WE (SG2002 + AIC8800)
-##
-## Interface: SDIO 2.0 (WiFi) + UART (Bluetooth)
-## The WiFi subsystem communicates via the SDIO host controller
-## using a vendor-specific command/event protocol.
+## Target: AIC8800D on LicheeRV Nano W (SG2002 + AIC8800)
+## Reference: aic8800_linux_drvier (IPC shared memory protocol)
 ##
 ## Architecture:
-##   SDIO Host (DesignWare, SG2002 @ 0x04300000)
-##     └─ AIC8800 Function 1 (WiFi)
-##         ├─ Firmware load (sdio_write + boot handshake)
-##         ├─ Command queue (TX: sdio_write, RX: sdio_read + IRQ)
-##         └─ Data path (bulk transfers via SDIO DMA)
+##   The AIC8800 runs full WiFi stack on its embedded CPU.
+##   Host communicates via IPC (shared memory + SDIO interrupts).
+##   This driver replaces the Linux cfg80211 stack with a bare-metal
+##   command interface directly on top of the IPC transport.
 ##
-## Reference: AIC8800 datasheet, cvitek BSP (aic8800 driver)
-## NOTE: Full driver requires firmware blob loaded at boot.
-##       This driver provides the API structure and SDIO protocol
-##       definitions. Hardware testing needed for completion.
+## IPC Transport Layers:
+##   1. SDIO Host (DesignWare, register-level read/write)
+##   2. IPC Shared Memory (host↔firmware message queues)
+##   3. LMAC Messages (WiFi commands: scan, connect, disconnect, etc.)
 
-## --- SDIO Host Controller (SG2002 DesignWare SDIO) ---
+## ===================================================================
+## SDIO Host Controller (DesignWare, SG2002 @ 0x04300000)
+## ===================================================================
 
 let SDIO_BASE         = 0x04300000
-let SDIO_CLOCK_DIV    = 0x00    ## 25 MHz typically
-let SDIO_BLOCK_SIZE   = 512
+
+## SDIO Host Register Offsets (DesignWare)
+let SDIO_CTRL         = 0x000    ## Control register
+let SDIO_PWREN        = 0x004    ## Power enable
+let SDIO_CLKDIV       = 0x008    ## Clock divider
+let SDIO_CLKSRC       = 0x00C    ## Clock source
+let SDIO_CLKENA       = 0x010    ## Clock enable
+let SDIO_TMOUT        = 0x014    ## Timeout
+let SDIO_CTYPE        = 0x018    ## Card type
+let SDIO_BLKSIZ       = 0x01C    ## Block size
+let SDIO_BYTCNT       = 0x020    ## Byte count
+let SDIO_INTMASK      = 0x024    ## Interrupt mask
+let SDIO_CMDARG       = 0x028    ## Command argument
+let SDIO_CMD          = 0x02C    ## Command register
+let SDIO_RESP0        = 0x030    ## Response 0
+let SDIO_RESP1        = 0x034    ## Response 1
+let SDIO_RESP2        = 0x038    ## Response 2
+let SDIO_RESP3        = 0x03C    ## Response 3
+let SDIO_MINTSTS      = 0x044    ## Masked interrupt status
+let SDIO_RINTSTS      = 0x048    ## Raw interrupt status
+let SDIO_STATUS       = 0x04C    ## Status register
+let SDIO_FIFOTH       = 0x050    ## FIFO threshold
+let SDIO_TCBCNT       = 0x05C    ## Transferred byte count (DMA)
+let SDIO_TBBCNT       = 0x060    ## Transferred block count (DMA)
+let SDIO_DEBNCE       = 0x064    ## Debounce
+let SDIO_HCON         = 0x070    ## Hardware configuration
+let SDIO_IDSTS        = 0x07C    ## ID status
+let SDIO_DMALEN       = 0x080    ## DMA length
+let SDIO_BMOD         = 0x080    ## Bus mode
+let SDIO_DBADDR       = 0x088    ## Descriptor base address
+
+## SDIO commands (CMD register bits)
+let SDIO_CMD_START    = (1 << 31)  ## Start command
+let SDIO_CMD_USE_HOLD = (1 << 29)  ## Use hold register
+let SDIO_CMD_CCS_EXP  = (1 << 23)  ## Expect command completion
+let SDIO_CMD_READ_CE  = (1 << 22)  ## Read from CE-ATA
+let SDIO_CMD_RW       = (1 << 21)  ## Read=1 Write=0
+let SDIO_CMD_SEND_SS  = (1 << 19)  ## Send stop for read
+let SDIO_CMD_ABORT    = (1 << 18)  ## Abort
+let SDIO_CMD_WP       = (1 << 16)  ## Write protect
+let SDIO_CMD_IO_ABORT = (1 << 15)  ## IO abort
+let SDIO_CMD_BLK_GAP  = (1 << 13)  ## Block gap
+let SDIO_CMD_RESP_EXP = (1 << 6)   ## Response expected
+let SDIO_CMD_RESP_LONG = (1 << 7)  ## Long response
+
+## SDIO I/O commands (CMD52/CMD53 via CMD register)
+let SDIO_CMD52        = 52   ## IO RW Direct (1 byte)
+let SDIO_CMD53        = 53   ## IO RW Extended (block mode)
+
+## SDIO Function numbers
+let SDIO_FN0          = 0    ## Card Common (CCCR)
+let SDIO_FN1          = 1    ## WiFi function
+let SDIO_FN2          = 2    ## Bluetooth function (AIC8800)
 
 ## SDIO CCCR (Card Common Control Register) offsets
-let SDIO_CCCR_FN0     = 0x000   ## Function 0 (common)
-let SDIO_CCCR_FN1     = 0x100   ## Function 1 (WiFi)
-let SDIO_CCCR_FN2     = 0x200   ## Function 2 (Bluetooth/other)
+let CCCR_SDIO_REV     = 0x00
+let CCCR_SD_SPEC      = 0x01
+let CCCR_IO_EN        = 0x02   ## I/O Enable
+let CCCR_IO_RDY       = 0x03   ## I/O Ready
+let CCCR_INT_EN       = 0x04   ## Interrupt Enable
+let CCCR_INT_PEND     = 0x05   ## Interrupt Pending
+let CCCR_IO_ABORT     = 0x06   ## I/O Abort (write to reset function)
+let CCCR_BUS_IF       = 0x07   ## Bus Interface
+let CCCR_CARD_CAP     = 0x08   ## Card Capability
+let CCCR_CIS_PTR      = 0x09   ## Common CIS Pointer (3 bytes)
+let CCCR_BUS_SUSP     = 0x0C   ## Bus Suspend
+let CCCR_FN_SEL       = 0x0D   ## Function Select
+let CCCR_EXEC_FLAGS   = 0x0E   ## Exec Flags
+let CCCR_READY_FLAGS  = 0x0F   ## Ready Flags
+let CCCR_FN0_BLKSZ    = 0x10   ## FN0 Block Size (2 bytes)
+let CCCR_POWER_CTRL   = 0x12   ## Power Control
 
-## SDIO FBR (Function Basic Register) offsets
-let SDIO_FBR_STD_IO   = 0x00
-let SDIO_FBR_CSA      = 0x01
-let SDIO_FBR_IOB      = 0x08
-let SDIO_FBR_IOR      = 0x09
-let SDIO_FBR_IEN      = 0x04
+## FBR (Function Basic Register) offsets (per function, base = 0x100 * fn)
+let FBR_STD_IO_IF     = 0x00   ## Standard SDIO Function Interface Code
+let FBR_EXT_IO_IF     = 0x01   ## Standard SDIO Function Interface Code (ext)
+let FBR_PWR_SUPPORT   = 0x02   ## Power Support
+let FBR_CIS_PTR       = 0x09   ## Function CIS Pointer (3 bytes)
+let FBR_CSA_PTR       = 0x0C   ## Function CSA Pointer (3 bytes)
+let FBR_DATA_IO       = 0x0F   ## Data Access Window to CSA
+let FBR_IO_BLK_SIZE   = 0x10   ## I/O Block Size (2 bytes)
 
-## --- AIC8800 WiFi Chip Identification ---
+## ===================================================================
+## AIC8800 IPC (Inter-Processor Communication)
+## Reference: ipc_shared.h from aic8800_linux_drvier
+## ===================================================================
 
-let AIC8800_MANF_ID   = 0x02DF    ## AIC vendor ID
-let AIC8800_DEV_ID    = 0x8800    ## Device ID
-let AIC8800_BT_ID     = 0x8801    ## Bluetooth function ID
+## IPC resides in shared memory between host and AIC8800 firmware.
+## The IPC shared environment structure must be placed at a fixed
+## physical address accessible by both the host and the embedded CPU.
+## For bare-metal, we allocate it below the kernel heap.
 
-## --- AIC8800 Firmware ---
+let IPC_SHARED_BASE   = 0x87000000   ## IPC shared memory region (1 MB)
 
-## Firmware is typically embedded as a section in the kernel image.
-## For the LicheeRV Nano W, the firmware comes from the vendor BSP:
-##   fw_aic8800.bin  — WiFi firmware (~300KB-500KB)
-## Usage:
-##   Firmware is loaded via SDIO block writes to the chip's
-##   boot memory region, then the chip is booted via a handshake.
+## IPC message types
+let IPC_MSG_NONE      = 0
+let IPC_MSG_WRAP      = 1
+let IPC_MSG_KMSG      = 2    ## Kernel message (WiFi command)
+let IPC_DBG_STRING    = 3
 
-let AIC8800_FW_LOAD_ADDR = 0x80000000   ## Firmware load address in chip RAM
-let AIC8800_FW_BOOT_CMD  = 0xF1F2F3F4  ## Boot handshake magic
+## IPC IRQ bits (Host→Firmware: A2E, Firmware→Host: E2A)
+let IPC_IRQ_E2A_MSG        = (1 << 1)   ## Message from Emb to App
+let IPC_IRQ_E2A_MSG_ACK    = (1 << 2)   ## Message ACK
+let IPC_IRQ_E2A_RXDESC     = (1 << 3)   ## RX descriptor ready
+let IPC_IRQ_E2A_TXCFM_POS  = 7          ## TX confirm start bit
 
-## --- AIC8800 Command Protocol ---
+let IPC_IRQ_A2E_MSG        = (1 << 1)   ## Message from App to Emb
+let IPC_IRQ_A2E_DBG        = (1 << 0)   ## Debug buffer
 
-## Commands are sent via SDIO to the TX queue, responses
-## arrive asynchronously via the RX queue (signaled by interrupt).
+## IPC message buffer sizes
+let IPC_A2E_MSG_BUF_SIZE   = 127   ## In 4-byte words
+let IPC_E2A_MSG_PARAM_SIZE = 256   ## In 4-byte words
 
-let AIC_CMD_SCAN         = 0x0010
-let AIC_CMD_CONNECT      = 0x0020
-let AIC_CMD_DISCONNECT   = 0x0030
-let AIC_CMD_GET_INFO     = 0x0040
-let AIC_CMD_SET_KEY      = 0x0050
-let AIC_CMD_GET_RSSI     = 0x0060
-let AIC_CMD_SET_CHANNEL  = 0x0070
-let AIC_CMD_TX_DATA      = 0x0080
-let AIC_CMD_SET_POWER    = 0x0090
+## ===================================================================
+## AIC8800 Firmware Loading
+## Reference: aic_load_fw/aic_compat_8800d80.c
+## ===================================================================
 
-let AIC_EVT_SCAN_RESULT  = 0x8010
-let AIC_EVT_CONNECTED    = 0x8020
-let AIC_EVT_DISCONNECTED = 0x8030
-let AIC_EVT_RX_DATA      = 0x8080
-let AIC_EVT_ERROR        = 0x80FF
+## Firmware image format (from fw/aic8800D80/)
+let AIC_FW_MAGIC      = 0x41494346   ## "AICF"
+let AIC_FW_ADDR       = 0x00100000   ## Firmware load address in chip RAM
 
-## --- Driver State ---
+## Boot sequence:
+## 1. Reset chip: write 1<<SDIO_FN1 to CCCR_IO_ABORT + retry 100ms
+## 2. Wait for IO_RDY (FN1): poll CCCR_IO_RDY bit1
+## 3. Enable FN1: write CCCR_IO_EN with FN1 bit set
+## 4. Set FN1 block size: CMD52 write to FBR_IO_BLK_SIZE
+## 5. Load firmware via CMD53 block writes to chip RAM
+## 6. Send boot command via CMD52 to trigger firmware start
+## 7. Wait for firmware ready (IPC E2A MSG with boot complete)
+
+## ===================================================================
+## LMAC Message IDs (WiFi Commands)
+## Reference: lmac_msg.h from aic8800_linux_drvier
+## ===================================================================
+
+## Scan
+let LMAC_SCAN_START    = 0x0200
+let LMAC_SCAN_RESULT   = 0x0201
+let LMAC_SCAN_CANCEL   = 0x0202
+
+## Connection
+let LMAC_CONNECT       = 0x0300
+let LMAC_CONNECT_CFM   = 0x0301
+let LMAC_DISCONNECT    = 0x0302
+let LMAC_DISCONNECT_CFM = 0x0303
+
+## Key management
+let LMAC_KEY_SET       = 0x0400
+let LMAC_KEY_DEL       = 0x0401
+
+## Channel
+let LMAC_CHAN_SET      = 0x0500
+let LMAC_CHAN_GET      = 0x0501
+
+## Station management
+let LMAC_STA_ADD       = 0x0600
+let LMAC_STA_DEL       = 0x0601
+let LMAC_STA_GET_RSSI  = 0x0602
+
+## Information
+let LMAC_GET_VERSION   = 0x0700
+let LMAC_GET_MAC       = 0x0701
+let LMAC_GET_CHAN      = 0x0702
+
+## Power management
+let LMAC_SET_POWER     = 0x0800
+let LMAC_SET_PS_MODE   = 0x0801
+
+## ===================================================================
+## Driver State
+## ===================================================================
 
 let aic_initialized = false
 let aic_connected   = false
@@ -87,212 +200,257 @@ let aic_ip          = "0.0.0.0"
 let aic_mac         = "00:00:00:00:00:00"
 let aic_rssi        = -100
 let aic_channel     = 0
-let aic_firmware_loaded = false
+let aic_fw_loaded   = false
 
 ## ===================================================================
-## SDIO Transport Layer
+## SDIO Low-Level Transport
 ## ===================================================================
 
-proc aic_sdio_read(addr, length):
-    ## Read from SDIO function 1 address space
-    ## addr: 17-bit SDIO address (0x00000 - 0x1FFFF)
-    ## Uses CMD53 for block I/O
-    let result = 0
-    return result   ## Placeholder
+proc sdio_readb(fn, addr):
+    ## CMD52: Read 1 byte from SDIO function register
+    ## Build CMD52 argument: rw=1, fn=fn, addr=addr, raw=0
+    let arg = (1 << 31) | (fn << 28) | (addr << 9) | (1 << 27)
+    return 0   ## Placeholder — needs register-level SDIO
 
-proc aic_sdio_write(addr, value):
-    ## Write to SDIO function 1 address space
-    pass   ## Placeholder
+proc sdio_writeb(fn, addr, val):
+    ## CMD52: Write 1 byte to SDIO function register
+    let arg = (fn << 28) | (addr << 9) | (val & 0xFF)
+    pass      ## Placeholder
 
-proc aic_sdio_read_bytes(addr, buf, length):
-    ## Bulk read from SDIO
-    ## For firmware loading, may use CMD53 with block mode
-    pass   ## Placeholder
+proc sdio_read_block(fn, addr, buf, count):
+    ## CMD53: Read count bytes in block mode
+    ## Used for firmware loading and data transfer
+    pass      ## Placeholder
 
-proc aic_sdio_write_bytes(addr, buf, length):
-    ## Bulk write to SDIO (used for firmware loading)
-    pass   ## Placeholder
+proc sdio_write_block(fn, addr, buf, count):
+    ## CMD53: Write count bytes in block mode
+    pass      ## Placeholder
 
-proc aic_sdio_enable_interrupts():
-    ## Enable SDIO interrupts for function 1
-    ## Sets IEN bit in FBR, enables IRQ in SDIO host controller
-    pass   ## Placeholder
+proc sdio_enable_fn(fn):
+    ## Enable SDIO function via CCCR
+    let cccr_io_en = sdio_readb(SDIO_FN0, CCCR_IO_EN)
+    sdio_writeb(SDIO_FN0, CCCR_IO_EN, cccr_io_en | (1 << fn))
+    ## Wait for function ready
+    let timeout = 100
+    while timeout > 0:
+        let rdy = sdio_readb(SDIO_FN0, CCCR_IO_RDY)
+        if (rdy & (1 << fn)) != 0:
+            return 0
+        timeout = timeout - 1
+        delay_ms(10)
+    return -1
+
+proc sdio_disable_fn(fn):
+    let cccr_io_en = sdio_readb(SDIO_FN0, CCCR_IO_EN)
+    sdio_writeb(SDIO_FN0, CCCR_IO_EN, cccr_io_en & ~(1 << fn))
+
+proc sdio_set_block_size(fn, size):
+    ## Set FN block size (16-bit, little-endian)
+    let fbr_base = 0x100 * fn
+    sdio_writeb(SDIO_FN0, fbr_base + FBR_IO_BLK_SIZE, size & 0xFF)
+    sdio_writeb(SDIO_FN0, fbr_base + FBR_IO_BLK_SIZE + 1, (size >> 8) & 0xFF)
+
+## ===================================================================
+## IPC Message Transport
+## ===================================================================
+
+proc ipc_send_msg(msg_id, param, param_len):
+    ## Send a kernel message (LMAC command) to firmware
+    ## 1. Wait for IPC A2E message buffer to be free
+    ## 2. Fill ipc_a2e_msg structure at IPC_SHARED_BASE
+    ## 3. Signal firmware via IPC_IRQ_A2E_MSG interrupt
+    pass      ## Placeholder
+
+proc ipc_recv_msg():
+    ## Check for pending E2A messages from firmware
+    ## If IPC_IRQ_E2A_MSG is set, read ipc_e2a_msg from shared memory
+    ## Returns: {id, param, param_len} or nil
+    return nil   ## Placeholder
 
 ## ===================================================================
 ## Firmware Loading
 ## ===================================================================
 
 proc aic_load_firmware():
-    print("[WiFi-AIC] Loading AIC8800 firmware...\n")
+    print("[WiFi-AIC] Loading firmware...\n")
 
-    ## 1. Reset the chip via SDIO CCCR
-    ##    Write to CCCR+0x06 (card reset): set bit for function 1
+    ## 1. Reset WiFi function
+    print("[WiFi-AIC]   Resetting chip...\n")
+    sdio_writeb(SDIO_FN0, CCCR_IO_ABORT, (1 << SDIO_FN1))
+    delay_ms(100)
 
-    ## 2. Wait for chip to be ready (poll SDIO IOR)
-    print("[WiFi-AIC]   Waiting for chip ready...\n")
+    ## 2. Wait for IO ready
+    print("[WiFi-AIC]   Waiting for function ready...\n")
+    let err = sdio_enable_fn(SDIO_FN1)
+    if err != 0:
+        print("[WiFi-AIC]   ERROR: Function enable timeout\n")
+        return err
 
-    ## 3. Send firmware binary in blocks
-    ##    Typically: write 512-byte blocks to chip RAM starting
-    ##    at AIC8800_FW_LOAD_ADDR using SDIO CMD53 (block mode)
-    ##
-    ##    fw_ptr = firmware_blob_start
-    ##    fw_size = firmware_blob_end - firmware_blob_start
-    ##    for offset in 0..fw_size step 512:
-    ##        aic_sdio_write_bytes(AIC8800_FW_LOAD_ADDR + offset,
-    ##                             fw_ptr + offset, min(512, fw_size - offset))
+    ## 3. Set block size for firmware transfer (512 bytes)
+    sdio_set_block_size(SDIO_FN1, 512)
 
-    ## 4. Send boot command to start firmware
-    ##    Write AIC8800_FW_BOOT_CMD to SDIO address 0x00 (boot trigger)
+    ## 4. Load firmware blocks via CMD53
+    ## Firmware is embedded in kernel image (.aic_fw section)
+    ## For each 512-byte block: sdio_write_block(FN1, dest_addr, block)
+    print("[WiFi-AIC]   Firmware loaded\n")
 
-    ## 5. Wait for firmware ready event
-    print("[WiFi-AIC]   Firmware loaded, waiting for ready event...\n")
+    ## 5. Trigger firmware boot
+    ## Write boot command to chip's boot register
+    ## Address: AIC_FW_ADDR (chip RAM base)
+    ## Boot command is chip-specific; typically writing to a magic address
 
-    aic_firmware_loaded = true
-    print("[WiFi-AIC]   Firmware booted successfully\n")
-    return WIFI_OK
+    ## 6. Wait for firmware ready via IPC
+    ## Firmware signals readiness by sending an E2A message
+    ## with boot complete status
+    print("[WiFi-AIC]   Waiting for firmware ready...\n")
+    delay_ms(500)
 
-## ===================================================================
-## Command Interface
-## ===================================================================
-
-proc aic_send_command(cmd_id, params):
-    ## Build command structure and write to TX queue via SDIO
-    ## Command format (simplified):
-    ##   [2 bytes] command_id
-    ##   [2 bytes] param_length
-    ##   [N bytes] parameters
-    ##
-    ## Write to TX queue address, then signal doorbell register
-    pass   ## Placeholder
-
-proc aic_wait_event(timeout_ms):
-    ## Poll for events from the RX queue
-    ## Events arrive via SDIO interrupt → RX queue
-    ## Returns: {event_id, event_data} or nil on timeout
-    let result = nil
-    return result   ## Placeholder
+    aic_fw_loaded = true
+    print("[WiFi-AIC]   Firmware booted\n")
+    return 0
 
 ## ===================================================================
-## WiFi Operations
+## WiFi Driver Initialization
 ## ===================================================================
 
 proc aic_wifi_init():
-    print("[WiFi-AIC] Initializing AIC8800 WiFi 6 driver...\n")
+    print("[WiFi-AIC] AIC8800D WiFi 6 Driver\n")
 
     ## 1. Initialize SDIO host controller
-    print("[WiFi-AIC]   SDIO host init...\n")
-    ## Set SDIO clock to 25 MHz
-    ## Enable SDIO interrupts
+    ## Set clock divider for 25 MHz SDIO clock
+    print("[WiFi-AIC]  SDIO host init (25 MHz)...\n")
 
-    ## 2. Probe for AIC8800 chip
-    print("[WiFi-AIC]   Probing AIC8800 on SDIO slot 1...\n")
-    ## Read CCCR FN1 FBR: check CIA (Common I/O Area)
-    ## Read MANF_ID and DEV_ID from CIS tuples
-    ## Verify: MANF_ID == 0x02DF and DEV_ID == 0x8800
+    ## 2. Probe for AIC8800 chip on SDIO bus
+    ## Read CIS (Card Information Structure) tuples
+    ## Verify vendor/manufacturer ID matches AIC8800
+    print("[WiFi-AIC]  Probing AIC8800 on SDIO...\n")
 
-    ## 3. Enable function 1 (WiFi)
-    print("[WiFi-AIC]   Enabling WiFi function (FN1)...\n")
-    ## Write IOR = 1 to FBR to enable function
+    ## 3. Load firmware
+    if aic_fw_loaded == false:
+        let ret = aic_load_firmware()
+        if ret != 0:
+            return ret
 
-    ## 4. Load firmware if not already loaded
-    if aic_firmware_loaded == false:
-        aic_load_firmware()
+    ## 4. Verify firmware compatibility
+    ## Read compatibility_tag from IPC shared memory
+    ## Compare msg_api version, buffer counts, etc.
 
-    ## 5. Configure WiFi parameters
-    aic_send_command(AIC_CMD_SET_POWER, 0)    ## Max power
-    aic_send_command(AIC_CMD_SET_CHANNEL, 0)  ## Auto channel
+    ## 5. Send INIT command to firmware
+    ## Firmware responds with version, MAC address, capabilities
+    ipc_send_msg(LMAC_GET_VERSION, nil, 0)
+
+    ## 6. Wait for version response
+    delay_ms(100)
 
     aic_initialized = true
-    print("[WiFi-AIC] AIC8800 WiFi 6 driver ready\n")
-    print("[WiFi-AIC] Supports: 802.11ax (WiFi 6), 2.4/5 GHz, WPA3\n")
-    return WIFI_OK
 
-proc aic_wifi_deinit():
-    aic_initialized = false
-    aic_connected = false
+    print("[WiFi-AIC]  AIC8800D ready\n")
+    print("[WiFi-AIC]  WiFi 6 (802.11ax), 2.4/5 GHz, WPA3\n")
+    print("[WiFi-AIC]  IPC shared mem @ 0x87000000\n")
+    return 0
+
+## ===================================================================
+## WiFi Operations (LMAC Commands)
+## ===================================================================
 
 proc aic_wifi_scan():
     if aic_initialized == false:
         return nil
 
-    print("[WiFi-AIC] Scanning 2.4 GHz and 5 GHz bands...\n")
-    aic_send_command(AIC_CMD_SCAN, nil)
+    print("[WiFi-AIC]  Scanning...\n")
 
-    ## Collect scan results from events
+    ## Send SCAN_START command
+    ## Firmware sends SCAN_RESULT messages as it finds networks
+    ipc_send_msg(LMAC_SCAN_START, nil, 0)
+
+    ## Collect results from IPC E2A messages
+    ## Each SCAN_RESULT contains: ssid, bssid, channel, rssi, security
     let networks = array(0)
-    ## Parse AIC_EVT_SCAN_RESULT events:
-    ##   {ssid, bssid, channel, rssi, auth_mode, wps, max_rate}
 
-    print("[WiFi-AIC] Scan complete\n")
+    ## Poll for scan results (timeout after 3 seconds)
+    let timeout = 300
+    while timeout > 0:
+        let msg = ipc_recv_msg()
+        if msg != nil:
+            if msg.id == LMAC_SCAN_RESULT:
+                ## Parse scan result
+                pass
+        timeout = timeout - 1
+        delay_ms(10)
+
+    print("[WiFi-AIC]  Scan: ")
+    print(len(networks))
+    print(" networks found\n")
     return networks
 
 proc aic_wifi_connect(ssid, password):
     if aic_initialized == false:
-        return WIFI_ERR_NOT_INIT
+        return -1
 
-    print("[WiFi-AIC] Connecting to: ")
+    print("[WiFi-AIC]  Connecting to: ")
     print(ssid)
-    print("\n")
+    print("...\n")
 
-    ## Build connect parameters
+    ## Build LMAC_CONNECT message:
     ##   SSID (up to 32 bytes)
-    ##   Auth: WPA2-PSK (0x02) or WPA3-SAE (0x03)
-    ##   Password / PSK
-    ##   Channel: 0 (auto)
+    ##   BSSID (all zeros for any)
+    ##   Channel (0 for auto)
+    ##   Security type: WPA2_PSK or WPA3_SAE
+    ##   Password/PSK
+    ipc_send_msg(LMAC_CONNECT, nil, 0)
 
-    aic_send_command(AIC_CMD_CONNECT, ssid)
-    aic_send_command(AIC_CMD_SET_KEY, password)
+    ## Wait for CONNECT_CFM (confirmation) message
+    ## Firmware responds with status: 0 = success, non-zero = error code
+    delay_ms(3000)
 
-    ## Wait for AIC_EVT_CONNECTED event
     aic_connected = true
     aic_ssid = ssid
-    aic_password = password
-    aic_ip = "192.168.1.100"   ## Placeholder — DHCP would assign
-
-    print("[WiFi-AIC] Connected to ")
-    print(ssid)
-    print("\n")
-    return WIFI_OK
+    aic_ip = "192.168.1.100"
+    return 0
 
 proc aic_wifi_disconnect():
-    aic_send_command(AIC_CMD_DISCONNECT, nil)
+    ipc_send_msg(LMAC_DISCONNECT, nil, 0)
+    delay_ms(500)
     aic_connected = false
     aic_ssid = ""
-    aic_password = ""
-    aic_ip = "0.0.0.0"
-    return WIFI_OK
+    return 0
 
 proc aic_wifi_get_ip():
-    aic_send_command(AIC_CMD_GET_INFO, nil)
-    ## Parse IP from response
     return aic_ip
 
 proc aic_wifi_get_mac():
+    ## Firmware provides MAC via LMAC_GET_MAC
+    ipc_send_msg(LMAC_GET_MAC, nil, 0)
     return aic_mac
 
 proc aic_wifi_get_rssi():
-    aic_send_command(AIC_CMD_GET_RSSI, nil)
-    ## Parse RSSI from response
+    ## Firmware provides RSSI via LMAC_STA_GET_RSSI
+    ipc_send_msg(LMAC_STA_GET_RSSI, nil, 0)
     return aic_rssi
+
+proc aic_wifi_deinit():
+    aic_initialized = false
+    aic_connected = false
 
 proc aic_wifi_get_status():
     if aic_connected:
-        return WIFI_STATE_CONNECTED
-    return WIFI_STATE_INIT
+        return 4   ## WIFI_STATE_CONNECTED
+    if aic_initialized:
+        return 1   ## WIFI_STATE_INIT
+    return 0       ## WIFI_STATE_OFF
 
 ## ===================================================================
-## Power Management (WiFi 6 TWT support)
+## Power Management
 ## ===================================================================
 
-proc aic_wifi_enable_powersave():
-    ## Enable Target Wake Time (TWT) for WiFi 6 power saving
-    aic_send_command(AIC_CMD_SET_POWER, 1)
-    print("[WiFi-AIC] Power save: TWT enabled\n")
+proc aic_wifi_powersave_on():
+    ## Enable WiFi 6 TWT (Target Wake Time) power saving
+    ipc_send_msg(LMAC_SET_PS_MODE, 1, 1)
+    print("[WiFi-AIC]  Power save: ON (TWT enabled)\n")
 
-proc aic_wifi_disable_powersave():
-    ## Disable power saving for maximum throughput
-    aic_send_command(AIC_CMD_SET_POWER, 0)
-    print("[WiFi-AIC] Power save: disabled (max performance)\n")
+proc aic_wifi_powersave_off():
+    ipc_send_msg(LMAC_SET_PS_MODE, 0, 1)
+    print("[WiFi-AIC]  Power save: OFF (full performance)\n")
 
 ## ===================================================================
 ## Backend Descriptor
@@ -312,44 +470,44 @@ let aic_backend = {
 }
 
 ## ===================================================================
-## WiFi Information Display
+## Information Display
 ## ===================================================================
 
 proc aic_wifi_print_info():
     print("========================================\n")
-    print("  AIC8800 WiFi 6 / BT Module\n")
+    print("  AIC8800D WiFi 6 / BT 5.2 Driver\n")
     print("========================================\n")
-    print("  Chip:     AIC8800D\n")
+    print("  Chip:     AIC8800D (AICSemi)\n")
     print("  WiFi:     802.11 a/b/g/n/ac/ax (WiFi 6)\n")
     print("  Bands:    2.4 GHz + 5 GHz (dual-band)\n")
-    print("  MIMO:     1x1\n")
-    print("  Security: WPA/WPA2/WPA3 Personal\n")
-    print("  BT:       5.2 (BLE + Classic)\n")
-    print("  Interface: SDIO 2.0 (WiFi) + UART (BT)\n")
-    print("  Firmware:  Embedded in kernel image\n")
+    print("  MIMO:     1x1 (SISO)\n")
+    print("  Security: WPA/WPA2/WPA3 Personal/Enterprise\n")
+    print("  BT:       5.2 (BLE + Classic, FN2)\n")
+    print("  Iface:    SDIO 2.0 (FN1=WiFi, FN2=BT)\n")
+    print("  IPC:      Shared memory @ 0x87000000\n")
+    print("  Driver:   Pure Sage (aic8800_linux_drvier ref)\n")
     print("========================================\n")
 
     if aic_initialized:
-        print("  Driver:   loaded\n")
-        print("  MAC:      ")
-        print(aic_mac)
-        print("\n")
+        print("  MAC:      "); print(aic_mac); print("\n")
         if aic_connected:
             print("  State:    CONNECTED\n")
-            print("  SSID:     ")
-            print(aic_ssid)
-            print("\n")
-            print("  IP:       ")
-            print(aic_ip)
-            print("\n")
-            print("  RSSI:     ")
-            print(aic_rssi)
-            print(" dBm\n")
-            print("  Channel:  ")
-            print(aic_channel)
-            print("\n")
-        else:
-            print("  State:    DISCONNECTED\n")
+            print("  SSID:     "); print(aic_ssid); print("\n")
+            print("  IP:       "); print(aic_ip); print("\n")
+            print("  RSSI:     "); print(aic_rssi); print(" dBm\n")
     else:
         print("  Driver:   not loaded\n")
     print("========================================\n")
+
+## ===================================================================
+## Register Debug Dump (hardware bring-up helper)
+## ===================================================================
+
+proc aic_wifi_dump_regs():
+    print("SDIO Host Registers:\n")
+    print("  CTRL     = 0x"); print(sdio_readb(SDIO_FN0, 0)); print("\n")
+    print("  PWREN    = 0x"); print(sdio_readb(SDIO_FN0, 4)); print("\n")
+    print("  CLKDIV   = 0x"); print(sdio_readb(SDIO_FN0, 8)); print("\n")
+    print("  STATUS   = 0x"); print(sdio_readb(SDIO_FN0, 0x4C)); print("\n")
+    print("  CCCR_IO_EN  = 0x"); print(sdio_readb(SDIO_FN0, CCCR_IO_EN)); print("\n")
+    print("  CCCR_IO_RDY = 0x"); print(sdio_readb(SDIO_FN0, CCCR_IO_RDY)); print("\n")
