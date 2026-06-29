@@ -823,6 +823,12 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             buf[pos] = '\0';
                             if (pos > 0 && vm->write_char) vm->write_char('\n');
                             int str_idx = rv_string_intern(vm, buf, pos);
+                            // Debug: print what readline captured
+                            if (vm->write_char) {
+                                vm->write_char('[');
+                                rv_print_str(vm, rv_string_get(vm, str_idx));
+                                vm->write_char(']');
+                            }
                             vm->x[10] = (MetalValue){MV_STR, {.str_idx = str_idx}};
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
