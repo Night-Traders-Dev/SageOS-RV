@@ -17,7 +17,7 @@ set -euo pipefail
 ##   compile-shell   Compile shell/shell.sage -> shell/shell.sgvm
 ##   run-shell       Run shell/shell.sgvm via sagevm
 ##   setup-srvm      Copy SRVM Sage sources from SageVM repo into kernel/
-##   setup-metalvm   Copy MetalVM headers from SageLang/core/include/ into kernel/
+##   setup-metalvm   Copy MetalVM headers + vm sources into kernel/metalvm/
 ##   setup-rtos      Clone rtos/SageRTOS (idempotent)
 ##   help            Show this help
 
@@ -68,16 +68,17 @@ BOARD="${BOARD:-qemu-virt}"
 BUILD_DIR="${SCRIPT_DIR}/build"
 IMAGE_DIR="${SCRIPT_DIR}/images"
 
-## MetalVM include path -- headers live in core/include/
-## After setup-metalvm they are also in kernel/ (used as fallback)
-METAL_INC="${SAGELANG_CORE}/include"
-[ -d "$METAL_INC" ] || METAL_INC="${SCRIPT_DIR}/kernel"
+## MetalVM bundled sources directory (populated by setup-metalvm)
+METALVM_DIR="${SCRIPT_DIR}/kernel/metalvm"
+
+## MetalVM include path
+METAL_INC="${SCRIPT_DIR}/kernel"
 
 ## Bare-metal compile flags
 BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
 BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM"
 
-## Colors (all output to stderr)
+## Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 YELLOW='\033[1;33m'; DIM='\033[0;90m'; BOLD='\033[1m'; RESET='\033[0m'
 info() { printf "${CYAN}  [INFO]${RESET} %s\n" "$1" >&2; }
@@ -89,13 +90,62 @@ sagevm_check() { command -v "$SAGEVM" >/dev/null 2>&1 || [ -x "$SAGEVM" ]; }
 
 ## ---------------------------------------------------------------------------
 ## MetalVM source helpers
+##
+## The actual function bodies for metal_vm_init / metal_vm_run / etc. live in
+## SageLang's vm.c (core/src/vm/vm.c).  We compile those sources directly
+## under bare-metal flags and link the resulting objects.
+##
+## Source search order:
+##   1. kernel/metalvm/   -- populated by setup-metalvm (self-contained)
+##   2. SAGELANG_CORE/src/vm/  -- live SageLang tree
 ## ---------------------------------------------------------------------------
-metal_src_c()  { echo "${SCRIPT_DIR}/kernel/metal_vm_impl.c"; }
-metal_src_rv() { echo "${SCRIPT_DIR}/kernel/metal_rv64_vm_impl.c"; }
+metal_vm_src_dir() {
+    if [ -f "${METALVM_DIR}/vm.c" ]; then
+        echo "${METALVM_DIR}"
+    elif [ -f "${SAGELANG_CORE}/src/vm/vm.c" ]; then
+        echo "${SAGELANG_CORE}/src/vm"
+    else
+        echo ""
+    fi
+}
 
 metal_headers_present() {
     [ -f "${SCRIPT_DIR}/kernel/metal_vm.h" ] && \
     [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm.h" ]
+}
+
+metal_sources_present() {
+    [ -n "$(metal_vm_src_dir)" ]
+}
+
+## ---------------------------------------------------------------------------
+## setup-metalvm
+##
+## Copies headers AND vm implementation sources from SAGELANG_CORE into
+## kernel/ (headers) and kernel/metalvm/ (vm sources) so the repo is
+## fully self-contained.
+## ---------------------------------------------------------------------------
+cmd_setup_metalvm() {
+    local inc="${SAGELANG_CORE}/include"
+    local vm_src="${SAGELANG_CORE}/src/vm"
+
+    [ -f "${inc}/metal_vm.h" ]      || fail "metal_vm.h not found at ${inc}\n  Set SAGELANG_CORE (default: ../SageLang/core)"
+    [ -f "${inc}/metal_rv64_vm.h" ] || fail "metal_rv64_vm.h not found at ${inc}"
+    [ -f "${vm_src}/vm.c" ]         || fail "vm.c not found at ${vm_src}"
+
+    ## Headers -> kernel/
+    cp "${inc}/metal_vm.h"      "${SCRIPT_DIR}/kernel/metal_vm.h"
+    ok "kernel/metal_vm.h"
+    cp "${inc}/metal_rv64_vm.h" "${SCRIPT_DIR}/kernel/metal_rv64_vm.h"
+    ok "kernel/metal_rv64_vm.h"
+
+    ## VM implementation sources -> kernel/metalvm/
+    mkdir -p "${METALVM_DIR}"
+    for f in vm.c program.c bytecode.c runtime.c vm.h program.h bytecode.h runtime.h; do
+        [ -f "${vm_src}/${f}" ] && cp "${vm_src}/${f}" "${METALVM_DIR}/${f}" && ok "kernel/metalvm/${f}"
+    done
+
+    ok "MetalVM ready.  Build with: ./sagemake build"
 }
 
 ## ---------------------------------------------------------------------------
@@ -143,6 +193,44 @@ compile_rtos() {
 }
 
 ## ---------------------------------------------------------------------------
+## compile_metalvm
+##
+## Compiles vm.c, program.c, bytecode.c, runtime.c from the resolved
+## MetalVM source directory under bare-metal flags.
+## Sets METAL_OBJS (array) for the caller.
+## ---------------------------------------------------------------------------
+compile_metalvm() {
+    local src_dir; src_dir="$(metal_vm_src_dir)"
+    [ -n "$src_dir" ] || fail "MetalVM sources not found.\n  Run: ./sagemake setup-metalvm"
+
+    METAL_OBJS=()
+
+    for src_file in vm.c program.c bytecode.c runtime.c; do
+        local full="${src_dir}/${src_file}"
+        [ -f "$full" ] || { warn "MetalVM source not found: ${src_file} (skipping)"; continue; }
+        local obj="${BUILD_DIR}/metalvm_${src_file%.c}.o"
+        info "Compiling MetalVM ${src_file} -> metalvm_${src_file%.c}.o..."
+        $CC $BM_CFLAGS $BM_DEFS \
+            -I"${SCRIPT_DIR}/kernel" \
+            -I"${src_dir}" \
+            -c "$full" \
+            -o "$obj" \
+            && ok "metalvm_${src_file%.c}.o" || fail "MetalVM ${src_file} compile failed"
+        METAL_OBJS+=("$obj")
+    done
+
+    ## Also compile the smoke-test wrapper so include paths are validated
+    info "Compiling metal_vm_impl.c (smoke test)..."
+    $CC $BM_CFLAGS $BM_DEFS \
+        -I"${SCRIPT_DIR}/kernel" \
+        -I"${src_dir}" \
+        -c "${SCRIPT_DIR}/kernel/metal_vm_impl.c" \
+        -o "${BUILD_DIR}/metal_vm_impl.o" \
+        && ok "metal_vm_impl.o" || warn "metal_vm_impl.c smoke test had warnings"
+    ## (metal_vm_impl.o defines no symbols -- not added to link line)
+}
+
+## ---------------------------------------------------------------------------
 ## sgvm compile helpers
 ## ---------------------------------------------------------------------------
 compile_kernel_sgvm() {
@@ -167,21 +255,15 @@ compile_shell_sgvm() {
         || fail "shell/shell.sage compilation failed"
 }
 
-## ---------------------------------------------------------------------------
-## embed_kernel_sgvm
-##
-## objcopy MUST be called with a RELATIVE path so the mangled symbol name
-## matches what fallback_kernel.c declares:
-##   _binary_kernel_kmain_sgvm_start / _end
-##
-## We cd to SCRIPT_DIR first, then pass "kernel/kmain.sgvm".
-## --------------------------------------------------------------------------- 
+## objcopy must be called with RELATIVE paths so symbol names are:
+##   _binary_kernel_kmain_sgvm_start/_end
+##   _binary_shell_shell_sgvm_start/_end
 embed_kernel_sgvm() {
     local src="kernel/kmain.sgvm"
     local obj="${BUILD_DIR}/kernel_sgvm.o"
     [ -f "${SCRIPT_DIR}/${src}" ] || fail "embed_kernel_sgvm: ${SCRIPT_DIR}/${src} missing"
     local bsz; bsz=$(wc -c < "${SCRIPT_DIR}/${src}")
-    info "Embedding kernel/kmain.sgvm (${bsz} bytes) -> .sgvm_kernel section" >&2
+    info "Embedding kernel/kmain.sgvm (${bsz} bytes) -> .sgvm_kernel section"
     ( cd "${SCRIPT_DIR}" && \
       $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
@@ -193,18 +275,12 @@ embed_kernel_sgvm() {
     echo "${obj}"
 }
 
-## ---------------------------------------------------------------------------
-## embed_shell_sgvm
-##
-## Same fix: cd to SCRIPT_DIR, pass "shell/shell.sgvm".
-## Symbol: _binary_shell_shell_sgvm_start / _end
-## ---------------------------------------------------------------------------
 embed_shell_sgvm() {
     local src="shell/shell.sgvm"
     local obj="${BUILD_DIR}/shell_sgvm.o"
     [ -f "${SCRIPT_DIR}/${src}" ] || fail "embed_shell_sgvm: ${SCRIPT_DIR}/${src} missing"
     local bsz; bsz=$(wc -c < "${SCRIPT_DIR}/${src}")
-    info "Embedding shell/shell.sgvm (${bsz} bytes) -> .sgvm_shell section" >&2
+    info "Embedding shell/shell.sgvm (${bsz} bytes) -> .sgvm_shell section"
     ( cd "${SCRIPT_DIR}" && \
       $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
@@ -254,32 +330,6 @@ cmd_run_shell() {
 }
 
 ## ---------------------------------------------------------------------------
-## setup-metalvm
-## ---------------------------------------------------------------------------
-cmd_setup_metalvm() {
-    local inc="${SAGELANG_CORE}/include"
-    local vm_h="${inc}/metal_vm.h"
-    local rv_h="${inc}/metal_rv64_vm.h"
-
-    [ -f "${vm_h}" ] || fail "metal_vm.h not found at ${vm_h}\n  Set SAGELANG_CORE (default: ../SageLang/core)"
-    [ -f "${rv_h}" ] || fail "metal_rv64_vm.h not found at ${rv_h}\n  Set SAGELANG_CORE (default: ../SageLang/core)"
-
-    cp "${vm_h}" "${SCRIPT_DIR}/kernel/metal_vm.h"
-    ok "kernel/metal_vm.h"
-    cp "${rv_h}" "${SCRIPT_DIR}/kernel/metal_rv64_vm.h"
-    ok "kernel/metal_rv64_vm.h"
-
-    [ -f "${SCRIPT_DIR}/kernel/metal_vm_impl.c" ] \
-        && ok "kernel/metal_vm_impl.c (already present)" \
-        || warn "kernel/metal_vm_impl.c missing -- git pull may be needed"
-    [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm_impl.c" ] \
-        && ok "kernel/metal_rv64_vm_impl.c (already present)" \
-        || warn "kernel/metal_rv64_vm_impl.c missing -- git pull may be needed"
-
-    ok "MetalVM ready.  Build with: ./sagemake build"
-}
-
-## ---------------------------------------------------------------------------
 ## cmd_build
 ## ---------------------------------------------------------------------------
 cmd_build() {
@@ -289,6 +339,10 @@ cmd_build() {
 
     if ! metal_headers_present; then
         fail "MetalVM headers not found in kernel/.\n  Run: ./sagemake setup-metalvm"
+    fi
+
+    if ! metal_sources_present; then
+        fail "MetalVM vm.c sources not found.\n  Run: ./sagemake setup-metalvm"
     fi
 
     cmd_ensure_srvm
@@ -312,28 +366,18 @@ cmd_build() {
     ## 4. RTOS
     compile_rtos
 
-    ## 5. MetalVM
-    local metal_c;  metal_c=$(metal_src_c)
-    local metal_rv; metal_rv=$(metal_src_rv)
-
-    info "Compiling MetalVM (metal_vm_impl.c -> metal_vm.o)..."
-    $CC $BM_CFLAGS $BM_DEFS \
-        -I"${SCRIPT_DIR}/kernel" \
-        -c "${metal_c}" \
-        -o "${BUILD_DIR}/metal_vm.o" || fail "MetalVM compile failed"
-
-    info "Compiling MetalVM RV64 (metal_rv64_vm_impl.c -> metal_rv64_vm.o)..."
-    $CC $BM_CFLAGS $BM_DEFS \
-        -I"${SCRIPT_DIR}/kernel" \
-        -c "${metal_rv}" \
-        -o "${BUILD_DIR}/metal_rv64_vm.o" || fail "MetalVM RV64 compile failed"
+    ## 5. MetalVM -- compile the REAL vm sources
+    METAL_OBJS=()
+    compile_metalvm   # populates METAL_OBJS[]
 
     ## 6. Kernel C entry
     info "Compiling kernel entry (fallback_kernel.c)..."
     local rtos_defs="" rtos_inc=""
     rtos_available && rtos_defs="-DSAGE_RTOS" && rtos_inc="-I${RTOS_DIR}/src/rv64" || true
+    local vm_src_dir; vm_src_dir="$(metal_vm_src_dir)"
     $CC $BM_CFLAGS $BM_DEFS $rtos_defs \
         -I"${SCRIPT_DIR}/kernel" \
+        -I"${vm_src_dir}" \
         -I"${SCRIPT_DIR}/rtos" \
         $rtos_inc \
         -DCONFIG_BOARD=\"${BOARD}\" \
@@ -376,8 +420,7 @@ cmd_build() {
         "${BUILD_DIR}/kernel.o" \
         "${BUILD_DIR}/dtb.o" \
         "${BUILD_DIR}/vmm.o" \
-        "${BUILD_DIR}/metal_vm.o" \
-        "${BUILD_DIR}/metal_rv64_vm.o" \
+        "${METAL_OBJS[@]}" \
         "${rtos_objs[@]}" \
         "${kernel_sgvm_obj}" \
         "${shell_sgvm_obj}" \
