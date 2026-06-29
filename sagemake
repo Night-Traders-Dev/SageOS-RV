@@ -28,6 +28,8 @@ source "${SCRIPT_DIR}/config/build.conf"
 SAGE="${SAGE:-}"
 if [ -z "$SAGE" ]; then
     for candidate in \
+        /home/kraken/Devel/sagelang/core/build/sage \
+        /home/kraken/Devel/sagelang/core/sage \
         /home/kraken/Devel/SageLang/core/build/sage \
         /home/kraken/Devel/SageLang/core/sage \
         sage sage3; do
@@ -43,7 +45,9 @@ if [ -z "$SAGEVM" ]; then
     for candidate in \
         sagevm \
         /home/kraken/Devel/SageVM/sagevm \
+        /home/kraken/Devel/sagelang/sagevm \
         /home/kraken/Devel/SageLang/sagevm \
+        "${SCRIPT_DIR}/../sagelang/sagevm" \
         "${SCRIPT_DIR}/../SageVM/sagevm"; do
         if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
             SAGEVM="$candidate"; break
@@ -59,7 +63,21 @@ QEMU="${QEMU_BIN:-qemu-system-riscv64}"
 OPENSBI="${OPENSBI_FW:-/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin}"
 
 SAGEVM_DIR="${SAGEVM_DIR:-${SCRIPT_DIR}/../SageVM}"
-SAGELANG_CORE="${SAGELANG_CORE:-${SCRIPT_DIR}/../SageLang/core}"
+
+## Resolve SAGELANG_CORE — prefer lowercase path (actual checkout location)
+if [ -z "${SAGELANG_CORE:-}" ]; then
+    for candidate in \
+        "/home/kraken/Devel/sagelang/core" \
+        "${SCRIPT_DIR}/../sagelang/core" \
+        "/home/kraken/Devel/SageLang/core" \
+        "${SCRIPT_DIR}/../SageLang/core"; do
+        if [ -d "$candidate" ]; then
+            SAGELANG_CORE="$candidate"; break
+        fi
+    done
+fi
+SAGELANG_CORE="${SAGELANG_CORE:-${SCRIPT_DIR}/../sagelang/core}"
+
 RTOS_DIR="${SCRIPT_DIR}/rtos/SageRTOS"
 SAGERTOS_REPO="https://github.com/Night-Traders-Dev/SageRTOS.git"
 
@@ -100,12 +118,11 @@ metal_impl_present() {
 ##
 ## kernel/metal_vm.h and kernel/metal_rv64_vm.h are committed kernel-local
 ## files (bare-metal Q32.32 variants). This command validates they are
-## present and that impl files exist.  It deliberately does NOT copy from
-## SAGELANG_CORE so the bare-metal override is never clobbered by the
-## hosted upstream header.
+## present and that impl files exist.  It deliberately does NOT overwrite
+## committed headers with the upstream hosted (double-based) versions.
 ##
-## If for some reason the headers are absent (fresh clone should never hit
-## this), we fall back to copying from SAGELANG_CORE as a recovery path.
+## Only copies from SAGELANG_CORE as a last-resort recovery if the file is
+## genuinely missing from the working tree.
 ## ---------------------------------------------------------------------------
 cmd_setup_metalvm() {
     local inc="${SAGELANG_CORE}/include"
@@ -114,14 +131,14 @@ cmd_setup_metalvm() {
     if [ -f "${SCRIPT_DIR}/kernel/metal_vm.h" ]; then
         ok "kernel/metal_vm.h"
     elif [ -f "${inc}/metal_vm.h" ]; then
-        warn "kernel/metal_vm.h missing — falling back to upstream copy (bare-metal guards will apply via -DSAGE_BARE_METAL)"
+        warn "kernel/metal_vm.h missing — falling back to upstream copy (bare-metal guards apply via -DSAGE_BARE_METAL)"
         cp "${inc}/metal_vm.h" "${SCRIPT_DIR}/kernel/metal_vm.h"
         ok "kernel/metal_vm.h (copied from upstream)"
     else
         fail "kernel/metal_vm.h not found in kernel/ or ${inc}"
     fi
 
-    # metal_rv64_vm.h — same policy: prefer committed, fall back to upstream
+    # metal_rv64_vm.h — same policy
     if [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm.h" ]; then
         ok "kernel/metal_rv64_vm.h"
     elif [ -f "${inc}/metal_rv64_vm.h" ]; then
