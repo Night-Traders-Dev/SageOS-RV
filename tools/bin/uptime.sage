@@ -1,0 +1,5 @@
+print("System Uptime\n")
+print("  Timer:  SBI TIME + mtimecmp @ 10 MHz\n")
+print("  Ticks:  500ms interval\n")
+print("  Board:  QEMU virt / LicheeRV Nano\n")
+print("  Kernel: SageOS-RV v0.3.0 (C-only / SageVM)\n")

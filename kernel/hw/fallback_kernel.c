@@ -345,6 +345,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         /* Command dispatch — mirrors rootfs/bin/ tools */
         if (bv_strcmp(buf, "help") == 0) {
             uart_puts("Commands: help version about clear dmesg ls mem ps halt\n");
+            uart_puts("  ssh wifi i2c gpio spi net wdog uptime\n");
         } else if (bv_strcmp(buf, "version") == 0) {
             uart_puts("SageOS-RV v0.3.0  RISC-V 64  C-Only Kernel\n");
         } else if (bv_strcmp(buf, "about") == 0) {
@@ -370,6 +371,32 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             uart_puts("PID  NAME        STATE\n  0  shell       RUNNING\n");
         } else if (bv_strcmp(buf, "halt") == 0) {
             uart_puts("Halting...\n"); break;
+        } else if (bv_strcmp(buf, "ssh") == 0) {
+            uart_puts("SSH Client — SSH-2.0 (RFC 4251-4254)\n");
+            uart_puts("  KEX: curve25519-sha256  Cipher: aes128-ctr  MAC: hmac-sha2-256\n");
+            uart_puts("  Auth: password  Crypto: SHA-256 (FIPS 180-4)\n");
+            uart_puts("  Cluster: 3 nodes, RAM threshold 20%%\n");
+        } else if (bv_strcmp(buf, "wifi") == 0) {
+            uart_puts("WiFi: AIC8800D WiFi 6 / BT 5.2\n");
+            uart_puts("  SDIO @ 0x04300000, 2.4+5 GHz, WPA3\n");
+            uart_puts("  Firmware: not loaded (needs embedded blob)\n");
+        } else if (bv_strcmp(buf, "i2c") == 0) {
+            uart_puts("I2C: DesignWare, 4 controllers @ 0x0400xxxx\n");
+            uart_puts("  Speed: 100 kHz, 7-bit addressing\n");
+        } else if (bv_strcmp(buf, "gpio") == 0) {
+            uart_puts("GPIO: DesignWare, 4 banks @ 0x0302xxxx\n");
+            uart_puts("  LED: GPIO0 pin 14 (active low)\n");
+        } else if (bv_strcmp(buf, "spi") == 0) {
+            uart_puts("SPI: DesignWare, 2 controllers @ 0x0418xxxx\n");
+        } else if (bv_strcmp(buf, "net") == 0) {
+            uart_puts("Network: TCP/IP stack (ETH/ARP/IPv4/UDP/TCP)\n");
+            uart_puts("  DHCP client, WiFi bridge, SSH client\n");
+        } else if (bv_strcmp(buf, "wdog") == 0) {
+            uart_puts("Watchdog: DesignWare WDT @ 0x03010000\n");
+            uart_puts("  Timeout: ~1.3s, RTOS-kicked, panic-integrated\n");
+        } else if (bv_strcmp(buf, "uptime") == 0) {
+            uart_puts("Uptime: SBI TIME + mtimecmp @ 10 MHz\n");
+            uart_puts("  Kernel: SageOS-RV v0.3.0  RTOS: cooperative\n");
         } else if (buf[0] != '\0') {
             uart_puts(buf); uart_puts(": command not found\n");
         }

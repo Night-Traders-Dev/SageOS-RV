@@ -1,0 +1,73 @@
+SAGEBC1
+functions 0
+chunks 10
+chunk
+constants 1
+string 34
+535049204275732044726976657220e280942044657369676e57617265205350490a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 19
+2020535049303a20307830343138303030300a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 19
+2020535049313a20307830343138313030300a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 19
+2020535049323a20307830343138323030300a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 19
+2020535049333a20307830343138333030300a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 7
+55736167653a0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 31
+2020737069207472616e73666572203c6275733e203c646174612e2e2e3e0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 23
+20207370692072656164203c6275733e203c6c656e3e0a
+code 6
+0000002a012c
+endchunk
