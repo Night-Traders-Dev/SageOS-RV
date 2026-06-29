@@ -811,7 +811,7 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             int pos = 0;
                             while (pos < 255) {
                                 int c = vm->read_char ? vm->read_char() : -1;
-                                if (c < 0) { __asm__ volatile("wfi"); continue; }
+                                if (c < 0) continue;
                                 if (vm->write_char) vm->write_char('*');
                                 if (c == '\n' || c == '\r') break;
                                 if (c == '\b' || c == 127) {
