@@ -99,6 +99,11 @@ KERNEL_CORE="${SCRIPT_DIR}/kernel/core"
 BM_CFLAGS="${BM_ARCH} -nostdlib -ffreestanding -O2"
 BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_STACK_TOP=${STACK_TOP} -DCONFIG_TIMER_FREQ=${TIMER_FREQ}"
 
+## SageVM optional layer
+if [ "${SAGEVM_ENABLED:-1}" != "0" ]; then
+    BM_DEFS="$BM_DEFS -DCONFIG_SAGEVM"
+fi
+
 ## Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 YELLOW='\033[1;33m'; DIM='\033[0;90m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -427,6 +432,10 @@ cmd_build() {
         done
     fi
 
+    local sgvm_objs=""
+    if [ -n "$kernel_sgvm_obj" ]; then sgvm_objs="$kernel_sgvm_obj"; fi
+    if [ -n "$shell_sgvm_obj" ]; then sgvm_objs="$sgvm_objs $shell_sgvm_obj"; fi
+
     $LD -T "$link_script" -nostdlib \
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
@@ -434,8 +443,7 @@ cmd_build() {
         "${BUILD_DIR}/vmm.o" \
         "${METAL_OBJS[@]}" \
         "${rtos_objs[@]}" \
-        "${kernel_sgvm_obj}" \
-        "${shell_sgvm_obj}" \
+        $sgvm_objs \
         "${rootfs_obj}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || fail "Link failed"

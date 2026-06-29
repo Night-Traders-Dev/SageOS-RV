@@ -89,10 +89,13 @@ uint64_t pmm_alloc(void) {
 /* --------------------------------------------------------------------------
  * Linker symbols — embedded .sgvm blobs
  * -------------------------------------------------------------------------- */
-extern const uint8_t _binary_kernel_core_kmain_sgvm_start[];
-extern const uint8_t _binary_kernel_core_kmain_sgvm_end[];
 extern const uint8_t _binary_shell_shell_sgvm_start[];
 extern const uint8_t _binary_shell_shell_sgvm_end[];
+
+#ifdef CONFIG_SAGEVM
+extern const uint8_t _binary_kernel_core_kmain_sgvm_start[];
+extern const uint8_t _binary_kernel_core_kmain_sgvm_end[];
+#endif
 
 /* --------------------------------------------------------------------------
  * Halt
@@ -114,9 +117,11 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
 
     uart_init();
     uart_puts("SBIK!\n");
-    uart_puts("[MetalRV64] Initializing...\n");
+    uart_puts("[SageOS] Booting...\n\n");
 
-    /* Run kernel blob */
+#ifdef CONFIG_SAGEVM
+    /* Run kernel blob via MetalRV64VM */
+    uart_puts("[MetalRV64] Initializing...\n");
     const uint8_t *kblob = _binary_kernel_core_kmain_sgvm_start;
     int            ksz   = (int)(_binary_kernel_core_kmain_sgvm_end - kblob);
 
@@ -193,4 +198,28 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     }
 
     _halt("Shell returned from MetalRV64");
+#else  /* !CONFIG_SAGEVM — C-only kernel */
+    uart_puts("[SageOS] C-only kernel active\n");
+    uart_puts("[SageOS] Type 'help' for commands\n\n");
+
+    /* Simple C shell loop */
+    while (1) {
+        uart_puts("sage# ");
+        int c = uart_getchar();
+        if (c < 0) { __asm__ volatile("wfi"); continue; }
+        if (c == '\n' || c == '\r') continue;
+        uart_putc((char)c);
+        /* Echo loop */
+        while (1) {
+            int c2 = uart_getchar();
+            if (c2 < 0) { __asm__ volatile("wfi"); continue; }
+            if (c2 == '\n' || c2 == '\r') break;
+            if (c2 == '\b' || c2 == 127) { uart_puts("\b \b"); continue; }
+            uart_putc((char)c2);
+        }
+        uart_puts("\nYou typed: ");
+        uart_putc((char)c);
+        uart_puts("\n\n");
+    }
+#endif
 }
