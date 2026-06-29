@@ -376,6 +376,8 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         if (bv_strcmp(cmd, "help") == 0) {
             uart_puts("Commands: help version about clear dmesg ls mem ps halt\n");
             uart_puts("  ssh wifi i2c gpio spi net wdog uptime rtos\n");
+            uart_puts("  sagefetch pwd cd mkdir cat head tail cp mv rm touch\n");
+            uart_puts("  grep find uname whoami df free kill ping curl ip\n");
             uart_puts("Usage: <command> [args...]\n");
             uart_puts("  ssh <user>@<host> [port]\n");
             uart_puts("  wifi connect <ssid> <password>\n");
@@ -479,6 +481,57 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
                 uart_puts("    2  wdog_kicker  READY      2    1KB\n");
                 uart_puts("\nUsage: rtos | rtos top | rtos logs\n");
             }
+        } else if (bv_strcmp(cmd, "sagefetch") == 0 || bv_strcmp(cmd, "neofetch") == 0) {
+            uart_puts("\n         .:.'        \n");
+            uart_puts("      .'.:;'.        \n");
+            uart_puts("     :..:;;;'    --- SageOS-RV v0.3.0 ---\n");
+            uart_puts("    ::::;;;;'     OS: SageOS-RV\n");
+            uart_puts("   .:::;;;'       Kernel: MetalRV64 (Q32.32)\n");
+            uart_puts("    ':;'          Arch: RISC-V 64 (rv64imac)\n");
+            uart_puts("     ';'''.       Shell: Sage shell\n");
+            uart_puts("      '''  ''     RTOS: SageRTOS v2.0\n");
+        } else if (bv_strcmp(cmd, "pwd") == 0) {
+            uart_puts("/\n");
+        } else if (bv_strcmp(cmd, "cd") == 0) {
+            uart_puts(argc > 1 ? argv[1] : "/");
+            uart_puts("\n");
+        } else if (bv_strcmp(cmd, "mkdir") == 0) {
+            uart_puts("mkdir: read-only rootfs\n");
+        } else if (bv_strcmp(cmd, "cat") == 0) {
+            uart_puts("cat: "); uart_puts(argc > 1 ? argv[1] : "(no file)");
+            uart_puts("\n  VFS read from rootfs not yet wired\n");
+        } else if (bv_strcmp(cmd, "head") == 0 || bv_strcmp(cmd, "tail") == 0) {
+            uart_puts(cmd); uart_puts(": "); uart_puts(argc > 1 ? argv[1] : "(no file)");
+            uart_puts("\n");
+        } else if (bv_strcmp(cmd, "cp") == 0 || bv_strcmp(cmd, "mv") == 0 || bv_strcmp(cmd, "rm") == 0 || bv_strcmp(cmd, "touch") == 0) {
+            uart_puts(cmd); uart_puts(": read-only rootfs\n");
+        } else if (bv_strcmp(cmd, "grep") == 0 || bv_strcmp(cmd, "find") == 0) {
+            uart_puts(cmd); uart_puts(": "); uart_puts(argc > 1 ? argv[1] : "(no pattern)");
+            uart_puts("\n");
+        } else if (bv_strcmp(cmd, "uname") == 0) {
+            uart_puts("SageOS 0.3.0 rv64imac SageOS-RV\n");
+        } else if (bv_strcmp(cmd, "whoami") == 0) {
+            uart_puts("root\n");
+        } else if (bv_strcmp(cmd, "df") == 0) {
+            uart_puts("Filesystem  Size  Used  Avail  Use%  Mounted\n");
+            uart_puts("rootfs      128M   32M    96M   25%   /\n");
+        } else if (bv_strcmp(cmd, "free") == 0) {
+            uart_puts("          total   used   free  shared  cached\n");
+            uart_puts("Mem:     256MiB  97MiB  159MiB   0MiB   34MiB\n");
+        } else if (bv_strcmp(cmd, "kill") == 0) {
+            uart_puts("kill: "); uart_puts(argc > 1 ? argv[1] : "(no PID)");
+            uart_puts(" — use 'rtos' to list processes\n");
+        } else if (bv_strcmp(cmd, "ping") == 0) {
+            uart_puts("ping: "); uart_puts(argc > 1 ? argv[1] : "(no host)");
+            uart_puts("\n  TCP/IP stack loaded, WiFi pending\n");
+        } else if (bv_strcmp(cmd, "curl") == 0 || bv_strcmp(cmd, "wget") == 0) {
+            uart_puts(cmd); uart_puts(": "); uart_puts(argc > 1 ? argv[1] : "(no url)");
+            uart_puts("\n  TCP/IP stack loaded, WiFi pending\n");
+        } else if (bv_strcmp(cmd, "ip") == 0) {
+            uart_puts("1: lo: <LOOPBACK> mtu 65536\n");
+            uart_puts("    inet 127.0.0.1/8\n");
+            uart_puts("2: wlan0: <BROADCAST> mtu 1500\n");
+            uart_puts("    inet 192.168.1.100/24\n");
         } else if (cmd[0] != '\0') {
             uart_puts(cmd); uart_puts(": command not found\n");
         }

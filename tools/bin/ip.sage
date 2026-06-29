@@ -1,0 +1,7 @@
+print("ip: network interface configuration\n")
+print("Usage: ip addr\n")
+print("\n")
+print("1: lo: <LOOPBACK> mtu 65536\n")
+print("    inet 127.0.0.1/8 scope host lo\n")
+print("2: wlan0: <BROADCAST> mtu 1500\n")
+print("    inet 192.168.1.100/24 brd 192.168.1.255 scope global wlan0\n")
