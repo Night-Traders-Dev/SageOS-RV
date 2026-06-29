@@ -7,10 +7,10 @@
  * Architecture:
  *   1. UART 16550A init
  *   2. PMM bump allocator init (used by vmm.c)
- *   3. Wire uart_putc / uart_getchar into MetalVM I/O callback fields
- *   4. metal_vm_init(&sage_vm)
- *   5. metal_vm_load_binary(&sage_vm, blob, size)
- *   6. metal_vm_run(&sage_vm)   -- executes kmain.sgvm
+ *   3. Wire uart_putc / uart_getchar into MetalRV64VM I/O callback fields
+ *   4. metal_rv64_vm_init(&sage_vm)
+ *   5. metal_rv64_vm_load_binary(&sage_vm, blob, size)
+ *   6. metal_rv64_vm_run(&sage_vm)   -- executes kmain.sgrv via RV64 VM
  *
  * Compile flags (enforced by sagemake):
  *   -march=rv64imac_zicsr_zifencei -mabi=lp64
@@ -20,7 +20,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "metal_vm.h"
 #include "metal_rv64_vm.h"
 
 /* --------------------------------------------------------------------------
@@ -101,9 +100,9 @@ extern const uint8_t _binary_shell_shell_sgvm_start[];
 extern const uint8_t _binary_shell_shell_sgvm_end[];
 
 /* --------------------------------------------------------------------------
- * Static MetalVM instance  (zero dynamic allocation)
+ * Static MetalRV64VM instance  (zero dynamic allocation)
  * -------------------------------------------------------------------------- */
-static MetalVM sage_vm;
+static MetalRV64VM sage_vm;
 
 /* --------------------------------------------------------------------------
  * Halt
@@ -124,12 +123,12 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     (void)dtb_addr;
 
     uart_init();
-    uart_puts("[MetalVM] Initializing...\n");
+    uart_puts("[MetalRV64] Initializing...\n");
 
     /* Init VM state (zeroes all pools) */
-    metal_vm_init(&sage_vm);
+    metal_rv64_vm_init(&sage_vm);
 
-    /* Wire I/O callbacks -- direct fields on MetalVM struct */
+    /* Wire I/O callbacks -- direct fields on MetalRV64VM struct */
     sage_vm.write_char = uart_putc;
     sage_vm.read_char  = uart_getchar;
 
@@ -140,22 +139,34 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     if (ksz <= 0)
         _halt("kmain.sgvm blob is empty -- rebuild with ./sagemake build");
 
-    uart_puts("[MetalVM] Loading kmain.sgvm...\n");
+    uart_puts("[MetalRV64] Loading kmain.sgvm...\n");
 
-    int load_ok = metal_vm_load_binary(&sage_vm, kblob, ksz);
+    int load_ok = metal_rv64_vm_load_binary(&sage_vm, kblob, ksz);
     if (load_ok != 0)
-        _halt("metal_vm_load_binary() failed");
+        _halt("metal_rv64_vm_load_binary() failed");
 
-    uart_puts("[MetalVM] Running kernel...\n");
+    uart_puts("[MetalRV64] Running kernel...\n");
 
-    int rc = metal_vm_run(&sage_vm);
-
-    if (rc != 0) {
-        uart_puts("[MetalVM] kmain.sgvm exited with error\n");
-        if (sage_vm.error_msg) uart_puts(sage_vm.error_msg);
-    } else {
-        uart_puts("[MetalVM] kmain.sgvm returned (unexpected)\n");
+    /* Execute all chunks sequentially to initialize function bindings.
+     * Each chunk runs to completion (halts), sharing register state. */
+    for (int i = 0; i < sage_vm.chunk_count; i++) {
+        sage_vm.current_chunk_idx = i;
+        sage_vm.bytecode = sage_vm.chunks[i];
+        sage_vm.bytecode_length = sage_vm.chunk_lengths[i];
+        sage_vm.pc = 0;
+        int rc = metal_rv64_vm_run(&sage_vm);
+        if (rc < 0) {
+            uart_puts("[MetalRV64] Chunk ");
+            // simple int-to-str
+            if (i >= 100) uart_putc('0' + (i / 100) % 10);
+            if (i >= 10)  uart_putc('0' + (i / 10) % 10);
+            uart_putc('0' + (i % 10));
+            uart_puts(" error: ");
+            if (sage_vm.error_msg) uart_puts(sage_vm.error_msg);
+            uart_puts("\n");
+            _halt("Kernel chunk execution failed");
+        }
     }
 
-    _halt("Kernel returned from MetalVM");
+    uart_puts("[MetalRV64] All chunks executed.\n");
 }

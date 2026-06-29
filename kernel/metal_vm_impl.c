@@ -50,10 +50,29 @@ static inline int64_t fp_mul(int64_t a, int64_t b) {
     // Use 128-bit intermediate via __int128 — no libgcc helper needed
     return (int64_t)(((__int128)a * (__int128)b) >> FP_SHIFT);
 }
-// Q32.32 divide:  (a << 32) / b
+// Q32.32 divide:  (a << 32) / b  (no __int128 division to avoid __divti3)
 static inline int64_t fp_div(int64_t a, int64_t b) {
     if (b == 0) return 0;
-    return (int64_t)(((__int128)a << FP_SHIFT) / (__int128)b);
+    uint64_t neg = 0;
+    if (a < 0) { a = -a; neg ^= 1; }
+    if (b < 0) { b = -b; neg ^= 1; }
+    uint64_t hi = ((uint64_t)a) >> 32;     // upper 32 bits -> top of 128-bit dividend
+    uint64_t lo = ((uint64_t)a) << 32;     // lower 64 bits
+    uint64_t ub = (uint64_t)b;
+    uint64_t q = 0;
+    uint64_t r = hi;
+    for (int i = 0; i < 64; i++) {
+        uint64_t next = lo >> 63;
+        r = (r << 1) | next;
+        lo <<= 1;
+        q <<= 1;
+        if (r >= ub) { r -= ub; q |= 1; }
+    }
+    // Round to nearest (ties to even)
+    if (r > (ub >> 1)) q++;
+    else if (r == (ub >> 1) && (ub & 1) && (q & 1)) q++;
+    int64_t result = (int64_t)q;
+    return (int64_t)(neg ? -result : result);
 }
 // Q32.32 modulo:  a - b * floor(a/b)
 static inline int64_t fp_mod(int64_t a, int64_t b) {

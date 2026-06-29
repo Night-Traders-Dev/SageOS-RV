@@ -309,14 +309,14 @@ cmd_run_kernel() {
     local sgvm="${SCRIPT_DIR}/kernel/kmain.sgvm"
     [ -f "${sgvm}" ] || fail "kernel/kmain.sgvm not found."
     sagevm_check || fail "sagevm not found."
-    "$SAGEVM" run "${sgvm}"
+    "$SAGEVM" run "${sgvm}" --riscv
 }
 cmd_compile_shell() { mkdir -p "${SCRIPT_DIR}/shell"; compile_shell_sgvm; }
 cmd_run_shell() {
     local sgvm="${SCRIPT_DIR}/shell/shell.sgvm"
     [ -f "${sgvm}" ] || fail "shell/shell.sgvm not found."
     sagevm_check || fail "sagevm not found."
-    "$SAGEVM" run "${sgvm}"
+    "$SAGEVM" run "${sgvm}" --riscv
 }
 
 ## ---------------------------------------------------------------------------

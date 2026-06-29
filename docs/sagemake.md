@@ -31,16 +31,18 @@ Environment variables override detected defaults:
 
 Full build pipeline:
 
-1. Generate boot assembly from `boot/start.sage` (`sage --emit-c`, falls back to prebuilt `boot.S`)
+1. Generate boot assembly from `boot/arch/rv64/boot.S`
 2. Compile `boot/arch/rv64/boot.S` → `build/boot.o`
-3. **`sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv`** (MetalVM bytecode)
-4. **`sagevm compile shell/shell.sage shell/shell.sgvm --riscv`** (MetalVM bytecode)
-5. Convert `shell.sgvm` → `build/shell_sgvm.o` (ELF object, section `.sgvm_shell`)
-6. Transpile `kernel/kmain.sage` → C via `sage --emit-c` (fallback path)
-7. Compile kernel C, dtb.c, vmm.c with `-nostdlib -ffreestanding`
-8. Compile drivers from `drivers/*.sage`
-9. Link everything with `linker.ld` → `build/sageos.elf`
-10. `objcopy -O binary` → `images/sageos.bin`
+3. **`sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv`** (SGRV RISC-V bytecode)
+4. **`sagevm compile shell/shell.sage shell/shell.sgvm --riscv`** (SGRV RISC-V bytecode)
+5. Embed `kernel/kmain.sgvm` → `build/kernel_sgvm.o` (ELF object, section `.sgvm_kernel`)
+6. Embed `shell/shell.sgvm` → `build/shell_sgvm.o` (ELF object, section `.sgvm_shell`)
+7. Compile SageRTOS (if present)
+8. Compile MetalRV64 VM (`metal_rv64_vm_impl.c`) + stack VM (`metal_vm_impl.c`)
+9. Compile kernel C (`fallback_kernel.c`), dtb.c, vmm.c with `-nostdlib -ffreestanding`
+10. Compile drivers from `drivers/*.sage`
+11. Link everything with `linker.ld` → `build/sageos.elf`
+12. `objcopy -O binary` → `images/sageos.bin`
 
 ```bash
 ./sagemake build
@@ -64,7 +66,7 @@ Skips gracefully if `sagevm` is not found.
 
 ### `run-kernel`
 
-Run `kernel/kmain.sgvm` directly via `sagevm run` on the host. Useful for iterating on kernel Sage code without a full QEMU build cycle.
+Run `kernel/kmain.sgvm` directly via `sagevm run --riscv` on the host. Useful for iterating on kernel Sage code without a full QEMU build cycle.
 
 ```bash
 ./sagemake run-kernel
@@ -84,7 +86,7 @@ Compile `shell/shell.sage` to `shell/shell.sgvm` using `sagevm compile --riscv`.
 
 ### `run-shell`
 
-Run `shell/shell.sgvm` directly via `sagevm run` on the host.
+Run `shell/shell.sgvm` directly via `sagevm run --riscv` on the host.
 
 ```bash
 ./sagemake run-shell

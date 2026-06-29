@@ -85,18 +85,14 @@ Key details:
 
 ```
 sage_kernel_main():
-  [1/6] uart_init()       → 16550A, byte MMIO
-  [2/6] pmm_init()        → 128 MB, 32768 pages, 256 reserved
-  [3/6] timer_start()     → SBI TIME, 500ms interval
-  [4/6] Wait 3 ticks      → Verify timer works
-  [5/6] shell_main()      → Interactive shell
+  [1]   uart_init()              → 16550A, byte MMIO
+  [2]   metal_rv64_vm_init()     → zero MetalRV64VM pools
+  [3]   wire write_char/read_char callbacks
+  [4]   metal_rv64_vm_load_binary() → parse SGRV binary
+  [5]   for each chunk:           → register function bindings
+          metal_rv64_vm_run()
+  [6]   shell dispatch           → (when kernel globals are available)
 ```
-
-If a timer tick is pending (`SIP.STIP = 0x20`):
-1. Increment `system_ticks`
-2. Read `time` CSR via `rdtime`
-3. `sbi_set_timer(time + 5000000)` (500ms at 10 MHz)
-4. Next tick arrives after 500ms (timer auto-clears STIP)
 
 ## SBI Wrappers
 
@@ -167,8 +163,17 @@ regardless of what is written. This means supervisor interrupt delivery via
 directly. This is a QEMU emulation artifact — hardware RISC-V cores do not
 exhibit this behavior.
 
-### SageLang --emit-c
+### Kernel Global Initialization
 
-The SageLang v3.9.5 `--emit-c` backend does not produce code suitable for
-`-nostdlib -ffreestanding` bare-metal environments (it references libc
-symbols). Until this is fixed, the C fallback kernel is the active runtime.
+The kernel Sage code (`kmain.sage`) uses `OBJ_GET_GLOBAL` to resolve symbols
+like `mem_write`, `UART_BASE`, etc. The MetalRV64 VM currently lacks built-in
+global registration — chunks attempting to resolve these globals during sequential
+initialization will receive nil values. This requires either:
+- Pre-populating the global namespace with kernel builtins before chunk execution
+- Adapting the kernel Sage code to not depend on globals at init time
+
+### SageVM --riscv SGRV Format
+
+The SGRV binary format uses `funct3=2` (OBJ_OPS) for object/global operations
+with a register-bind convention (VMSYS sub_op=0 copies x10 to rd). The
+stack-based MetalVM SGVM format (funct3-based dispatch) is mutually exclusive.
