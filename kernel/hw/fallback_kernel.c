@@ -85,8 +85,8 @@ uint64_t pmm_alloc(void) {
 /* --------------------------------------------------------------------------
  * Linker symbols — embedded .sgvm blobs
  * -------------------------------------------------------------------------- */
-extern const uint8_t _binary_kernel_kmain_sgvm_start[];
-extern const uint8_t _binary_kernel_kmain_sgvm_end[];
+extern const uint8_t _binary_kernel_core_kmain_sgvm_start[];
+extern const uint8_t _binary_kernel_core_kmain_sgvm_end[];
 extern const uint8_t _binary_shell_shell_sgvm_start[];
 extern const uint8_t _binary_shell_shell_sgvm_end[];
 
@@ -113,8 +113,8 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("[MetalRV64] Initializing...\n");
 
     /* Run kernel blob */
-    const uint8_t *kblob = _binary_kernel_kmain_sgvm_start;
-    int            ksz   = (int)(_binary_kernel_kmain_sgvm_end - kblob);
+    const uint8_t *kblob = _binary_kernel_core_kmain_sgvm_start;
+    int            ksz   = (int)(_binary_kernel_core_kmain_sgvm_end - kblob);
 
     if (ksz > 8) {
         MetalRV64VM kernel_vm;

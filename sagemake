@@ -12,8 +12,8 @@ set -euo pipefail
 ##   image           Generate disk image
 ##   test            Run test suite
 ##   version         Show version info
-##   compile-kernel  Compile kernel/kmain.sage -> kernel/kmain.sgvm
-##   run-kernel      Run kernel/kmain.sgvm via sagevm
+##   compile-kernel  Compile kernel/core/kmain.sage -> kernel/core/kmain.sgvm
+##   run-kernel      Run kernel/core/kmain.sgvm via sagevm
 ##   compile-shell   Compile shell/shell.sage -> shell/shell.sgvm
 ##   run-shell       Run shell/shell.sgvm via sagevm
 ##   setup-srvm      Copy SRVM Sage sources from SageVM repo into kernel/
@@ -90,6 +90,10 @@ IMAGE_DIR="${SCRIPT_DIR}/images"
 ## MetalVM include path — use upstream sagelang headers, kernel for impl
 METAL_INC="${SAGELANG_CORE}/include"
 KERNEL_INC="${SCRIPT_DIR}/kernel"
+KERNEL_VM="${SCRIPT_DIR}/kernel/vm"
+KERNEL_HW="${SCRIPT_DIR}/kernel/hw"
+KERNEL_SRVM="${SCRIPT_DIR}/kernel/srvm"
+KERNEL_CORE="${SCRIPT_DIR}/kernel/core"
 
 ## Bare-metal compile flags
 BM_CFLAGS="-march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -O2"
@@ -106,19 +110,19 @@ fail() { printf "${RED}  [FAIL]${RESET} %s\n" "$1" >&2; exit 1; }
 sagevm_check() { command -v "$SAGEVM" >/dev/null 2>&1 || [ -x "$SAGEVM" ]; }
 
 metal_headers_present() {
-    [ -f "${SCRIPT_DIR}/kernel/metal_vm.h" ] && \
-    [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm.h" ]
+    [ -f "${SCRIPT_DIR}/kernel/vm/metal_vm.h" ] && \
+    [ -f "${SCRIPT_DIR}/kernel/vm/metal_rv64_vm.h" ]
 }
 
 metal_impl_present() {
-    [ -f "${SCRIPT_DIR}/kernel/metal_vm_impl.c" ] && \
-    [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm_impl.c" ]
+    [ -f "${SCRIPT_DIR}/kernel/vm/metal_vm_impl.c" ] && \
+    [ -f "${SCRIPT_DIR}/kernel/vm/metal_rv64_vm_impl.c" ]
 }
 
 ## ---------------------------------------------------------------------------
 ## setup-metalvm
 ##
-## kernel/metal_vm.h and kernel/metal_rv64_vm.h are committed kernel-local
+## kernel/vm/metal_vm.h and kernel/vm/metal_rv64_vm.h are committed kernel-local
 ## files (bare-metal Q32.32 variants). This command validates they are
 ## present and that impl files exist.  It deliberately does NOT overwrite
 ## committed headers with the upstream hosted (double-based) versions.
@@ -130,28 +134,28 @@ cmd_setup_metalvm() {
     local inc="${SAGELANG_CORE}/include"
 
     # metal_vm.h — use committed kernel-local file; do NOT overwrite
-    if [ -f "${SCRIPT_DIR}/kernel/metal_vm.h" ]; then
-        ok "kernel/metal_vm.h"
+    if [ -f "${SCRIPT_DIR}/kernel/vm/metal_vm.h" ]; then
+        ok "kernel/vm/metal_vm.h"
     elif [ -f "${inc}/metal_vm.h" ]; then
-        warn "kernel/metal_vm.h missing — falling back to upstream copy (bare-metal guards apply via -DSAGE_BARE_METAL)"
-        cp "${inc}/metal_vm.h" "${SCRIPT_DIR}/kernel/metal_vm.h"
-        ok "kernel/metal_vm.h (copied from upstream)"
+        warn "kernel/vm/metal_vm.h missing — falling back to upstream copy (bare-metal guards apply via -DSAGE_BARE_METAL)"
+        cp "${inc}/metal_vm.h" "${SCRIPT_DIR}/kernel/vm/metal_vm.h"
+        ok "kernel/vm/metal_vm.h (copied from upstream)"
     else
-        fail "kernel/metal_vm.h not found in kernel/ or ${inc}"
+        fail "kernel/vm/metal_vm.h not found in kernel/ or ${inc}"
     fi
 
     # metal_rv64_vm.h — same policy
-    if [ -f "${SCRIPT_DIR}/kernel/metal_rv64_vm.h" ]; then
-        ok "kernel/metal_rv64_vm.h"
+    if [ -f "${SCRIPT_DIR}/kernel/vm/metal_rv64_vm.h" ]; then
+        ok "kernel/vm/metal_rv64_vm.h"
     elif [ -f "${inc}/metal_rv64_vm.h" ]; then
-        warn "kernel/metal_rv64_vm.h missing — falling back to upstream copy"
-        cp "${inc}/metal_rv64_vm.h" "${SCRIPT_DIR}/kernel/metal_rv64_vm.h"
-        ok "kernel/metal_rv64_vm.h (copied from upstream)"
+        warn "kernel/vm/metal_rv64_vm.h missing — falling back to upstream copy"
+        cp "${inc}/metal_rv64_vm.h" "${SCRIPT_DIR}/kernel/vm/metal_rv64_vm.h"
+        ok "kernel/vm/metal_rv64_vm.h (copied from upstream)"
     else
-        fail "kernel/metal_rv64_vm.h not found in kernel/ or ${inc}"
+        fail "kernel/vm/metal_rv64_vm.h not found in kernel/ or ${inc}"
     fi
 
-    metal_impl_present || fail "MetalVM impl files missing: kernel/metal_vm_impl.c and/or kernel/metal_rv64_vm_impl.c"
+    metal_impl_present || fail "MetalVM impl files missing: kernel/vm/metal_vm_impl.c and/or kernel/vm/metal_rv64_vm_impl.c"
 
     ok "MetalVM ready.  Build with: ./sagemake build"
 }
@@ -204,14 +208,14 @@ compile_rtos() {
 ## compile_metalvm
 ## ---------------------------------------------------------------------------
 compile_metalvm() {
-    metal_impl_present || fail "MetalVM impl files not found in kernel/.\n  Expected: kernel/metal_vm_impl.c and kernel/metal_rv64_vm_impl.c"
+    metal_impl_present || fail "MetalVM impl files not found in kernel/.\n  Expected: kernel/vm/metal_vm_impl.c and kernel/vm/metal_rv64_vm_impl.c"
 
     METAL_OBJS=()
 
     info "Compiling MetalVM (metal_vm_impl.c)..."
     $CC $BM_CFLAGS $BM_DEFS \
         -I"${METAL_INC}" \
-        -c "${SCRIPT_DIR}/kernel/metal_vm_impl.c" \
+        -c "${SCRIPT_DIR}/kernel/vm/metal_vm_impl.c" \
         -o "${BUILD_DIR}/metal_vm_impl.o" \
         && ok "metal_vm_impl.o" || fail "MetalVM metal_vm_impl.c compile failed"
     METAL_OBJS+=("${BUILD_DIR}/metal_vm_impl.o")
@@ -219,7 +223,7 @@ compile_metalvm() {
     info "Compiling MetalVM RV64 backend (metal_rv64_vm_impl.c)..."
     $CC $BM_CFLAGS $BM_DEFS \
         -I"${METAL_INC}" \
-        -c "${SCRIPT_DIR}/kernel/metal_rv64_vm_impl.c" \
+        -c "${SCRIPT_DIR}/kernel/vm/metal_rv64_vm_impl.c" \
         -o "${BUILD_DIR}/metal_rv64_vm_impl.o" \
         && ok "metal_rv64_vm_impl.o" || fail "MetalVM metal_rv64_vm_impl.c compile failed"
     METAL_OBJS+=("${BUILD_DIR}/metal_rv64_vm_impl.o")
@@ -229,11 +233,11 @@ compile_metalvm() {
 ## sgvm compile helpers
 ## ---------------------------------------------------------------------------
 compile_kernel_sgvm() {
-    local src="${SCRIPT_DIR}/kernel/kmain.sage"
-    local out="${SCRIPT_DIR}/kernel/kmain.sgvm"
-    [ -f "${src}" ] || fail "kernel/kmain.sage not found"
+    local src="${SCRIPT_DIR}/kernel/core/kmain.sage"
+    local out="${SCRIPT_DIR}/kernel/core/kmain.sgvm"
+    [ -f "${src}" ] || fail "kernel/core/kmain.sage not found"
     sagevm_check || fail "sagevm not found -- cannot compile kmain.sgvm"
-    info "Compiling kernel/kmain.sage -> kernel/kmain.sgvm ..."
+    info "Compiling kernel/core/kmain.sage -> kernel/core/kmain.sgvm ..."
     "$SAGEVM" compile "${src}" "${out}" --riscv 2>&1 \
         && ok "kmain.sgvm ($(wc -c < "${out}") bytes)" \
         || fail "kmain.sage compilation failed"
@@ -251,11 +255,11 @@ compile_shell_sgvm() {
 }
 
 embed_kernel_sgvm() {
-    local src="kernel/kmain.sgvm"
+    local src="kernel/core/kmain.sgvm"
     local obj="${BUILD_DIR}/kernel_sgvm.o"
     [ -f "${SCRIPT_DIR}/${src}" ] || fail "embed_kernel_sgvm: ${SCRIPT_DIR}/${src} missing"
     local bsz; bsz=$(wc -c < "${SCRIPT_DIR}/${src}")
-    info "Embedding kernel/kmain.sgvm (${bsz} bytes) -> .sgvm_kernel section"
+    info "Embedding kernel/core/kmain.sgvm (${bsz} bytes) -> .sgvm_kernel section"
     ( cd "${SCRIPT_DIR}" && \
       $OBJCOPY \
         -I binary -O elf64-littleriscv -B riscv \
@@ -286,13 +290,13 @@ embed_shell_sgvm() {
 
 cmd_ensure_srvm() {
     local srvm_src="${SAGEVM_DIR}/src/srvm"
-    local kdir="${SCRIPT_DIR}/kernel"
+    local kdir="${SCRIPT_DIR}/kernel/srvm"
     [ -f "${kdir}/srvm_core.sage" ] && [ -f "${kdir}/srvm_vm.sage" ] && return 0
     if [ -d "${srvm_src}" ]; then
         info "Copying SRVM sources..."
         cp "${srvm_src}/srvm_core.sage" "${kdir}/srvm_core.sage"
         cp "${srvm_src}/srvm_vm.sage"   "${kdir}/srvm_vm.sage"
-        ok "SRVM staged in kernel/"
+        ok "SRVM staged in kernel/srvm/"
     else
         warn "SAGEVM_DIR not found (${SAGEVM_DIR}). Set SAGEVM_DIR or run './sagemake setup-srvm'."
     fi
@@ -305,15 +309,15 @@ cmd_setup_srvm() {
         git submodule update --init --recursive deps/SageVM || fail "Submodule init failed"
     fi
     [ -d "${srvm_src}" ] || fail "SageVM submodule not found at ${SAGEVM_DIR}. Run: git submodule update --init"
-    cp "${srvm_src}/srvm_core.sage" "${SCRIPT_DIR}/kernel/srvm_core.sage"
-    cp "${srvm_src}/srvm_vm.sage"   "${SCRIPT_DIR}/kernel/srvm_vm.sage"
-    ok "kernel/srvm_core.sage"; ok "kernel/srvm_vm.sage"
+    cp "${srvm_src}/srvm_core.sage" "${SCRIPT_DIR}/kernel/srvm/srvm_core.sage"
+    cp "${srvm_src}/srvm_vm.sage"   "${SCRIPT_DIR}/kernel/srvm/srvm_vm.sage"
+    ok "kernel/srvm/srvm_core.sage"; ok "kernel/srvm/srvm_vm.sage"
 }
 
 cmd_compile_kernel() { compile_kernel_sgvm; }
 cmd_run_kernel() {
-    local sgvm="${SCRIPT_DIR}/kernel/kmain.sgvm"
-    [ -f "${sgvm}" ] || fail "kernel/kmain.sgvm not found."
+    local sgvm="${SCRIPT_DIR}/kernel/core/kmain.sgvm"
+    [ -f "${sgvm}" ] || fail "kernel/core/kmain.sgvm not found."
     sagevm_check || fail "sagevm not found."
     "$SAGEVM" run "${sgvm}" --riscv
 }
@@ -366,21 +370,21 @@ cmd_build() {
     local rtos_defs="" rtos_inc=""
     rtos_available && rtos_defs="-DSAGE_RTOS" && rtos_inc="-I${RTOS_DIR}/src/rv64" || true
     $CC $BM_CFLAGS $BM_DEFS $rtos_defs \
-        -I"${SCRIPT_DIR}/kernel" \
+        -I"${KERNEL_INC}" -I"${KERNEL_VM}" -I"${KERNEL_HW}" \
         -I"${SCRIPT_DIR}/rtos" \
         $rtos_inc \
         -DCONFIG_BOARD=\"${BOARD}\" \
-        -c "${SCRIPT_DIR}/kernel/fallback_kernel.c" \
+        -c "${SCRIPT_DIR}/kernel/hw/fallback_kernel.c" \
         -o "${BUILD_DIR}/kernel.o" || fail "Kernel C compile failed"
 
     info "Compiling DTB parser..."
-    $CC $BM_CFLAGS -I"${SCRIPT_DIR}/kernel" \
-        -c "${SCRIPT_DIR}/kernel/dtb.c" \
+    $CC $BM_CFLAGS -I"${KERNEL_INC}" -I"${KERNEL_HW}" \
+        -c "${SCRIPT_DIR}/kernel/hw/dtb.c" \
         -o "${BUILD_DIR}/dtb.o" || fail "DTB compile failed"
 
     info "Compiling VMM..."
-    $CC $BM_CFLAGS -I"${SCRIPT_DIR}/kernel" \
-        -c "${SCRIPT_DIR}/kernel/vmm.c" \
+    $CC $BM_CFLAGS -I"${KERNEL_INC}" -I"${KERNEL_HW}" \
+        -c "${SCRIPT_DIR}/kernel/hw/vmm.c" \
         -o "${BUILD_DIR}/vmm.o" || fail "VMM compile failed"
 
     ## 7. Drivers

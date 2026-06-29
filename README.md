@@ -164,23 +164,31 @@ SageOS-RV/
 │       ├── boot.S              bare-metal entry point
 │       └── linker.ld           memory layout + SGRV sections
 ├── kernel/
-│   ├── fallback_kernel.c       C boot kernel + MetalRV64 dispatch
-│   ├── kmain.sage              Sage kernel logic
-│   ├── kmain.sgvm              compiled SGRV bytecode
-│   ├── metal_rv64_vm.h         RV64 VM public API
-│   ├── metal_rv64_vm_impl.c    RV64 VM freestanding implementation
-│   ├── metal_vm.h              MetalVM types + value constructors
-│   ├── metal_vm_impl.c         Stack VM + fixed-point math
-│   ├── dtb.c / dtb.h           device tree parser
-│   ├── vmm.c / vmm.h           SV39 virtual memory
-│   ├── sbi.h                   SBI call wrappers
-│   ├── srvm_core.sage          SRVM core (from SageVM)
-│   └── srvm_vm.sage            SRVM VM (from SageVM)
+│   ├── core/                    Kernel core (Sage)
+│   │   ├── kmain.sage           Kernel entry point
+│   │   ├── panic.sage           Verbose kernel panic handler
+│   │   └── errors.sage          Error code registry + subsystem mapping
+│   ├── vm/                      MetalVM implementations (C)
+│   │   ├── metal_vm.h           Stack VM header + value types
+│   │   ├── metal_vm_impl.c      Stack VM (Q32.32 fixed-point)
+│   │   ├── metal_rv64_vm.h      RV64 register VM header
+│   │   └── metal_rv64_vm_impl.c RV64 register VM (freestanding)
+│   ├── srvm/                    SRVM module sources (Sage, from SageVM)
+│   │   ├── srvm_core.sage       SRVM core: opcodes, encoding
+│   │   └── srvm_vm.sage         SRVM VM: bytecode interpreter
+│   ├── hw/                      Hardware abstraction (C)
+│   │   ├── fallback_kernel.c    C boot kernel + MetalRV64 dispatch
+│   │   ├── dtb.c / dtb.h        Device tree parser
+│   │   ├── vmm.c / vmm.h        SV39 virtual memory
+│   │   └── sbi.h                SBI call wrappers
+│   └── sagertos.sage            Pure-Sage cooperative scheduler
 ├── shell/
 │   ├── shell.sage              interactive shell source
 │   └── shell.sgvm              compiled SGRV bytecode
 ├── drivers/                    Sage driver sources
 ├── rtos/                       SageRTOS submodule (optional)
+├── tests/                     Test suite
+│   └── panic_test.sage         Error handling + panic tests
 ├── config/
 │   └── build.conf              board / toolchain config
 ├── docs/
@@ -196,10 +204,56 @@ SageOS-RV/
 
 ## SRVM — Sage RISC-V VM
 
-SRVM (`kernel/srvm_vm.sage` + `kernel/srvm_core.sage`) is a pure-Sage scripting VM that provides the in-kernel scripting environment. SRVM sources are copied from [SageVM](https://github.com/Night-Traders-Dev/SageVM):
+SRVM (`kernel/srvm/srvm_vm.sage` + `kernel/srvm/srvm_core.sage`) is a pure-Sage scripting VM that provides the in-kernel scripting environment. SRVM sources are copied from [SageVM](https://github.com/Night-Traders-Dev/SageVM):
 
 ```bash
 ./sagemake setup-srvm
+```
+
+---
+
+## Error Handling & Kernel Panic
+
+SageOS-RV implements a comprehensive, hierarchical error handling system:
+
+| Severity | Description | Behavior |
+|---|---|---|
+| `FATAL` | Unrecoverable error | System halts with full diagnostic |
+| `CRITICAL` | Subsystem failure | Degraded operation, system may continue |
+| `WARNING` | Non-fatal issue | Logged, system continues normally |
+| `INFO` | Diagnostic information | Informational only |
+
+### Subsystem Error Codes
+
+| Subsystem | Code Range | Examples |
+|---|---|---|
+| KERNEL | 0x1000-0x1FFF | BOOT_FAILED, INIT_FAILED, ASSERT_FAILED |
+| VM | 0x2000-0x2FFF | LOAD_FAILED, STACK_OVERFLOW, INVALID_OPCODE |
+| MEMORY | 0x3000-0x3FFF | ALLOC_FAILED, OUT_OF_PAGES, CORRUPTION |
+| UART | 0x4000-0x4FFF | INIT_FAILED, OVERRUN |
+| TIMER | 0x5000-0x5FFF | INIT_FAILED, EXPIRED |
+| DTB | 0x6000-0x6FFF | PARSE_FAILED, MAGIC_MISMATCH |
+| VMM | 0x7000-0x7FFF | INIT_FAILED, PAGE_FAULT |
+| SHELL | 0x8000-0x8FFF | LOAD_FAILED, MAGIC_MISMATCH |
+| RTOS | 0x9000-0x9FFF | INIT_FAILED, TASK_FAILED |
+| SRVM | 0xA000-0xAFFF | LOAD_FAILED, RUNTIME_ERROR |
+| DRIVER | 0xB000-0xBFFF | LOAD_FAILED, MMIO_FAULT |
+
+### Panic Display
+
+A FATAL error produces a box-drawn diagnostic screen with:
+- Error code and subsystem
+- Human-readable description
+- Suggested fix / recovery action
+- System state dump (kernel version, arch, VM, board)
+- Issue reporting instructions
+
+### Running Tests
+
+```bash
+./sagemake test            # run all tests
+sagevm compile tests/panic_test.sage --riscv  # compile panic tests
+sagevm run tests/panic_test.sgvm --riscv       # run panic tests
 ```
 
 ---
