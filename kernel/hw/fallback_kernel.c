@@ -600,20 +600,30 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
             rtos_log_tick = 0;
         }
 
-        // Parse arguments: split buf into argv[] by spaces/quotes
+        // Parse arguments: split buf into argv[] by spaces/quotes, detect pipe (|)
         char *argv[8]; int argc = 0; char *p = buf;
+        char *pipe_cmd = 0;  // command after |
         while (argc < 8) {
             while (*p == ' ') p++;
             if (!*p) break;
+            if (*p == '|') { *p++ = 0; pipe_cmd = p; break; }
             if (*p == '"') {
                 p++; argv[argc++] = p;
                 while (*p && *p != '"') p++;
                 if (*p) *p++ = 0;
             } else {
                 argv[argc++] = p;
-                while (*p && *p != ' ') p++;
+                while (*p && *p != ' ' && *p != '|') p++;
+                if (*p == '|') { *p++ = 0; pipe_cmd = p; break; }
                 if (*p) *p++ = 0;
             }
+        }
+        // Pipe: if pipe_cmd is set, run it with output capture (simplified)
+        if (pipe_cmd) {
+            uart_puts("pipe: "); uart_puts(argv[0]); uart_puts(" | "); uart_puts(pipe_cmd); uart_puts("\n");
+            dmesg_write(buf);
+            // For now, just show pipe support — real I/O buffering needs process model
+            continue;
         }
 
         /* Command dispatch — mirrors rootfs/bin/ tools */
