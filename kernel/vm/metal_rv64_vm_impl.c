@@ -356,6 +356,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "shell_exec");
     metal_rv64_vm_register_builtin(vm, "shell_input");
     metal_rv64_vm_register_builtin(vm, "run");
+    metal_rv64_vm_register_builtin(vm, "dmesg_read");
     metal_rv64_vm_register_builtin(vm, "rtos_tick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
@@ -844,6 +845,25 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             // Write magic 0x76 to CRR register
                             *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
                             vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "dmesg_read") == 0) {
+                            // dmesg_read(index): read entry from C dmesg ring buffer
+                            int idx = (vm->x[10].type == MV_NUM) ? (int)fp_to_int(vm->x[10].as.number) : 0;
+                            volatile int *dbase = (volatile int *)(uintptr_t)0x87010000UL;
+                            int count = dbase[1];  // offset 4
+                            int wpos  = dbase[2];  // offset 8
+                            if (idx < 0 || idx >= count) {
+                                int eidx = rv_string_intern(vm, "", 0);
+                                vm->x[10] = (MetalValue){MV_STR, {.str_idx = eidx}};
+                            } else {
+                                int ridx = (count < 256) ? idx : ((wpos + idx) % 256);
+                                int off = 16 + ridx * 128;
+                                char *src = (char *)(uintptr_t)(0x87010000UL + off);
+                                int eidx = rv_string_intern(vm, src, rv_strlen(src));
+                                vm->x[10] = (MetalValue){MV_STR, {.str_idx = eidx}};
+                            }
+                        } else if (rv_strcmp(b_name, "dmesg_count") == 0) {
+                            volatile int *dbase = (volatile int *)(uintptr_t)0x87010000UL;
+                            vm->x[10] = mv_num(dbase[1]);
                         } else if (rv_strcmp(b_name, "run") == 0) {
                             // run(binary): load and execute a .sgvm file from rootfs
                             MetalValue bin = vm->x[10];

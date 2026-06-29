@@ -65,6 +65,71 @@ static void uart_puts(const char *s) {
     while (*s) uart_putc(*s++);
 }
 
+/* --------------------------------------------------------------------------
+ * dmesg — persistent diagnostic ring buffer
+ * 256 entries, survives warm boot (magic detection at boot)
+ * -------------------------------------------------------------------------- */
+#define DMESG_BASE      0x87010000UL
+#define DMESG_MAGIC     0x444D5347UL  // "DMSG"
+#define DMESG_MAX       256
+#define DMESG_MSG_LEN   128
+
+static void dmesg_init(void) {
+    uint32_t magic = *(volatile uint32_t *)(uintptr_t)(DMESG_BASE);
+    int count = 0;
+    if (magic == DMESG_MAGIC) {
+        count = *(volatile int *)(uintptr_t)(DMESG_BASE + 4);
+        uart_puts("dmesg: warm boot, log preserved (");
+        uart_putc('0' + (count/100)%10);
+        uart_putc('0' + (count/10)%10);
+        uart_putc('0' + count%10);
+        uart_puts(" messages)\n");
+        return;
+    }
+    *(volatile uint32_t *)(uintptr_t)(DMESG_BASE) = DMESG_MAGIC;
+    for (int i = 4; i < 16; i++)
+        *(volatile uint32_t *)(uintptr_t)(DMESG_BASE + i*4) = 0;
+    uart_puts("dmesg: initialized @ 0x87010000\n");
+}
+
+static void dmesg_write(const char *msg) {
+    int count = *(volatile int *)(uintptr_t)(DMESG_BASE + 4);
+    int wpos  = *(volatile int *)(uintptr_t)(DMESG_BASE + 8);
+    int total = *(volatile int *)(uintptr_t)(DMESG_BASE + 12);
+    int off = 16 + wpos * DMESG_MSG_LEN;
+    unsigned char *dst = (unsigned char *)(uintptr_t)(DMESG_BASE + off);
+    for (int i = 0; i < DMESG_MSG_LEN - 1 && msg[i]; i++)
+        dst[i] = (unsigned char)msg[i];
+    dst[(DMESG_MSG_LEN-1)] = 0;
+    wpos = (wpos + 1) % DMESG_MAX;
+    if (count < DMESG_MAX) count++;
+    total++;
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 4)  = count;
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 8)  = wpos;
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 12) = total;
+}
+
+static int dmesg_read(int index, char *buf) {
+    int count = *(volatile int *)(uintptr_t)(DMESG_BASE + 4);
+    int wpos  = *(volatile int *)(uintptr_t)(DMESG_BASE + 8);
+    if (index < 0 || index >= count) return 0;
+    int ridx = (count < DMESG_MAX) ? index : ((wpos + index) % DMESG_MAX);
+    int off = 16 + ridx * DMESG_MSG_LEN;
+    unsigned char *src = (unsigned char *)(uintptr_t)(DMESG_BASE + off);
+    for (int i = 0; i < DMESG_MSG_LEN; i++) buf[i] = (char)src[i];
+    return 1;
+}
+
+static int dmesg_count(void) {
+    return *(volatile int *)(uintptr_t)(DMESG_BASE + 4);
+}
+
+static void dmesg_clear(void) {
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 4)  = 0;
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 8)  = 0;
+    *(volatile int *)(uintptr_t)(DMESG_BASE + 12) = 0;
+}
+
 static int bv_strcmp(const char *a, const char *b) {
     while (*a && *a == *b) { a++; b++; }
     return *(unsigned char *)a - *(unsigned char *)b;
@@ -121,10 +186,14 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     (void)dtb_addr;
 
     uart_init();
+    dmesg_init();
+    dmesg_write("BOOT: UART 16550A initialized @ 0x10000000");
     uart_puts("SBIK!\n");
     uart_puts("[SageOS] Booting...\n\n");
+    dmesg_write("BOOT: SageOS kernel entry (sage_kernel_main)");
 
 #ifdef CONFIG_SAGEVM
+    dmesg_write("BOOT: SageVM mode — loading MetalRV64VM");
     /* Run kernel blob via MetalRV64VM */
     uart_puts("[MetalRV64] Initializing...\n");
     const uint8_t *kblob = _binary_kernel_core_kmain_sgvm_start;
@@ -136,9 +205,11 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         kernel_vm.write_char = uart_putc;
         kernel_vm.read_char  = uart_getchar;
         metal_rv64_vm_register_kernel_builtins(&kernel_vm);
+        dmesg_write("VM: MetalRV64VM initialized, builtins registered");
 
         int err = metal_rv64_vm_load_binary(&kernel_vm, kblob, ksz);
         if (err == 0) {
+            dmesg_write("KERNEL: kmain.sgvm loaded successfully");
             for (int i = 0; i < kernel_vm.chunk_count; i++) {
                 kernel_vm.current_chunk_idx = i;
                 kernel_vm.bytecode = kernel_vm.chunks[i];
@@ -163,6 +234,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     rv64_vm.write_char = uart_putc;
     rv64_vm.read_char  = uart_getchar;
     metal_rv64_vm_register_kernel_builtins(&rv64_vm);
+    dmesg_write("SHELL: MetalRV64VM init, builtins registered");
 
     int err = metal_rv64_vm_load_binary(&rv64_vm, sblob, ssz);
     if (err != 0)
@@ -204,6 +276,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
 
     _halt("Shell returned from MetalRV64");
 #else  /* !CONFIG_SAGEVM — C-only kernel */
+    dmesg_write("BOOT: C-only kernel mode active");
     uart_puts("[SageOS] C-only kernel active\n");
     uart_puts("[SageOS] Type 'help' for commands\n\n");
 
@@ -221,6 +294,7 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         }
         buf[pos] = '\0';
         uart_puts("\n");
+        dmesg_write(buf);
         /* Command dispatch — mirrors rootfs/bin/ tools */
         if (bv_strcmp(buf, "help") == 0) {
             uart_puts("Commands: help version about clear dmesg ls mem ps halt\n");
@@ -231,7 +305,16 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
         } else if (bv_strcmp(buf, "clear") == 0) {
             uart_puts("\e[2J\e[H");
         } else if (bv_strcmp(buf, "dmesg") == 0) {
-            uart_puts("dmesg: 256 msgs @ 0x87010000, warm-boot persistent\n");
+            int n = dmesg_count();
+            uart_puts("dmesg log:\n");
+            for (int i = 0; i < n; i++) {
+                char msg[128];
+                if (dmesg_read(i, msg)) {
+                    uart_puts(" ["); uart_putc('0'+(i/10)%10); uart_putc('0'+i%10);
+                    uart_puts("] "); uart_puts(msg); uart_puts("\n");
+                }
+            }
+            uart_puts("--- end of dmesg ---\n");
         } else if (bv_strcmp(buf, "ls") == 0) {
             uart_puts("/bin: help version about clear dmesg ls mem ps halt\n");
         } else if (bv_strcmp(buf, "mem") == 0) {
