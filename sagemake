@@ -349,6 +349,16 @@ cmd_build() {
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly failed"
 
+    ## 3. Root filesystem
+    info "Building root filesystem..."
+    "${SCRIPT_DIR}/tools/mkrootfs.sh" "${SCRIPT_DIR}/rootfs" "${BUILD_DIR}/rootfs.bin" > /dev/null
+    local rootfs_obj="${BUILD_DIR}/rootfs_obj.o"
+    $OBJCOPY -I binary -O elf64-littleriscv -B riscv \
+        --rename-section .data=.rootfs \
+        --set-section-flags .rootfs=alloc,load,readonly \
+        "${BUILD_DIR}/rootfs.bin" "${rootfs_obj}" \
+        && ok "rootfs embedded" || fail "objcopy embed failed for rootfs"
+
     ## 2. Compile .sgvm blobs
     compile_kernel_sgvm
     compile_shell_sgvm
@@ -416,6 +426,7 @@ cmd_build() {
         "${rtos_objs[@]}" \
         "${kernel_sgvm_obj}" \
         "${shell_sgvm_obj}" \
+        "${rootfs_obj}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || fail "Link failed"
 

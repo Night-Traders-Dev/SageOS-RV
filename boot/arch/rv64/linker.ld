@@ -22,6 +22,12 @@ SECTIONS {
         _shell_sgvm_end = .;
     } > RAM
 
+    .rootfs : {
+        _rootfs_start = .;
+        KEEP(*(.rootfs))
+        _rootfs_end = .;
+    } > RAM
+
     .data : {
         *(.data .data.*)
         *(.sdata .sdata.*)

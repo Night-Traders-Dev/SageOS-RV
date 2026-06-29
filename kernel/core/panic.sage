@@ -13,12 +13,16 @@
 let PANIC_VERSION = "1.0.0"
 
 proc panic(code):
+    ## On panic, the watchdog will fire and reset the system
+    ## since we stop kicking it. This ensures recovery from
+    ## fatal errors without manual intervention.
     print("\n")
     print("╔══════════════════════════════════════════════════════╗\n")
     print("║              *** KERNEL PANIC ***                    ║\n")
     print("║                                                      ║\n")
     print("║  The SageOS-RV kernel has encountered a fatal error  ║\n")
     print("║  and cannot continue execution.                      ║\n")
+    print("║  Watchdog: armed — system will reset in 1 second.   ║\n")
     print("╚══════════════════════════════════════════════════════╝\n")
     print("\n")
     print("  ─── Diagnostic Information ───\n")
@@ -29,7 +33,7 @@ proc panic(code):
     print("  Subsystem:       ")
     print(panic_subsystem(code))
     print("\n")
-    print("  Severity:        FATAL (System Halt)\n")
+    print("  Severity:        FATAL (System Halt + Watchdog Reset)\n")
     print("\n")
     print("  Description:     ")
     print(panic_description(code))
@@ -39,23 +43,14 @@ proc panic(code):
     print("\n")
     print("\n")
     print("  ─── System State ───\n")
-    print("    Kernel:        SageOS-RV v0.2.0\n")
+    print("    Kernel:        SageOS-RV v0.3.0\n")
     print("    Architecture:  RISC-V 64 (rv64imac)\n")
     print("    VM Engine:     MetalRV64 (Q32.32 fixed-point)\n")
     print("    Board:         QEMU virt / LicheeRV Nano\n")
-    print("    Panic Handler: v")
-    print(PANIC_VERSION)
-    print("\n")
-    print("\n")
-    print("  ─── Recovery ───\n")
-    print("    This is an unrecoverable error. The system must be\n")
-    print("    restarted. If this error persists:\n")
-    print("    1. Rebuild with:  ./sagemake clean && ./sagemake build\n")
-    print("    2. Verify hardware configuration.\n")
-    print("    3. Report at: github.com/Night-Traders-Dev/SageOS-RV/issues\n")
+    print("    Watchdog:      Armed, reset in ~1.3s\n")
     print("\n")
     print("════════════════════════════════════════════════════════\n")
-    print("  SYSTEM HALTED — All processors stopped.\n")
+    print("  SYSTEM HALTED — Watchdog will trigger reset.\n")
     print("════════════════════════════════════════════════════════\n")
 
 proc panic_with_msg(code, msg):

@@ -1,128 +1,70 @@
 SAGEBC1
-functions 0
-chunks 17
-chunk
-constants 1
-string 38
-536167654f532d5256205368656c6c20e2809420696e746572616374697665206563686f0a0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
+functions 1
+function
+params 0
+constants 13
 string 6
 736167652320
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
 string 8
 726561646c696e65
-string 2
-6331
-code 10
-0500002500060001012c
-endchunk
-chunk
-constants 1
 string 11
 596f752074797065643a20
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
-string 2
-6331
-code 6
-0500002a012c
-endchunk
-chunk
-constants 1
 string 1
 0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
 string 6
 736167652320
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
 string 8
 726561646c696e65
-string 2
-6332
-code 10
-0500002500060001012c
-endchunk
-chunk
-constants 1
 string 11
 596f752074797065643a20
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
-string 2
-6332
-code 6
-0500002a012c
-endchunk
-chunk
-constants 1
 string 1
 0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
 string 6
 736167652320
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
 string 8
 726561646c696e65
-string 2
-6333
-code 10
-0500002500060001012c
-endchunk
-chunk
-constants 1
 string 11
 596f752074797065643a20
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
-string 2
-6333
-code 6
-0500002a012c
-endchunk
-chunk
-constants 1
 string 1
 0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 1
 string 12
 5368656c6c20646f6e652e0a
+code 72
+0000002a05000125000000022a3b00002a0000032a0000042a05000525000000062a3b00012a0000072a0000082a050009250000000a2a3b00022a00000b2a00000c2a040404012c
+endfunction
+chunks 5
+chunk
+constants 1
+string 37
+5b4f4b5d205361676552544f533a207368656c6c207461736b20726567697374657265640a
 code 6
 0000002a012c
+endchunk
+chunk
+constants 1
+string 29
+5b4f4b5d204d6574616c525636343a207368656c6c206c6f616465640a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 34
+0a536167654f532d5256205368656c6c20e2809420747970652062656c6f773a0a0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 10
+7368656c6c5f7461736b
+code 7
+0800000000012c
+endchunk
+chunk
+constants 1
+string 10
+7368656c6c5f7461736b
+code 6
+05000025002c
 endchunk

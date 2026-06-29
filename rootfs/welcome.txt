@@ -1,0 +1,3 @@
+Welcome to SageOS-RV root filesystem!
+Version: 0.3.0
+This is an embedded rootfs for SageOS-RV.

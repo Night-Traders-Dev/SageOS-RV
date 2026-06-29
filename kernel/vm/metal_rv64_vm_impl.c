@@ -352,6 +352,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "read");
     metal_rv64_vm_register_builtin(vm, "input");
     metal_rv64_vm_register_builtin(vm, "streq");
+    metal_rv64_vm_register_builtin(vm, "wdog_kick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
 
@@ -834,6 +835,11 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                 eq = (rv_strcmp(sa, sb) == 0) ? 1 : 0;
                             }
                             vm->x[10] = mv_num(eq);
+                        } else if (rv_strcmp(b_name, "wdog_kick") == 0) {
+                            // Kick the hardware watchdog (DesignWare WDT at 0x03010000)
+                            // Write magic 0x76 to CRR register
+                            *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
+                            vm->x[10] = mv_nil();
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
                             rv_dict_set(vm, d_idx,
