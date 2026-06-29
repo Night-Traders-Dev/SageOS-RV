@@ -354,6 +354,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "streq");
     metal_rv64_vm_register_builtin(vm, "wdog_kick");
     metal_rv64_vm_register_builtin(vm, "shell_exec");
+    metal_rv64_vm_register_builtin(vm, "rtos_tick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
 }
 
@@ -842,50 +843,57 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             *(volatile uint32_t *)(uintptr_t)0x0301000C = 0x76;
                             vm->x[10] = mv_nil();
                         } else if (rv_strcmp(b_name, "shell_exec") == 0) {
-                            // shell_exec(cmd): dispatch shell command, return result string
                             MetalValue cmd_val = vm->x[10];
                             const char *cmd = "";
                             if (cmd_val.type == MV_STR)
                                 cmd = rv_string_get(vm, cmd_val.as.str_idx);
                             
-                            const char *result = "";
-                            if (rv_strcmp(cmd, "help") == 0) {
-                                result = "Commands: help version about clear dmesg ls cat mem ps halt";
-                            } else if (rv_strcmp(cmd, "version") == 0) {
-                                result = "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)";
-                            } else if (rv_strcmp(cmd, "about") == 0) {
-                                result = "SageOS-RV: Pure Sage OS for RISC-V 64";
-                            } else if (rv_strcmp(cmd, "clear") == 0) {
-                                if (vm->write_char) { vm->write_char(27); vm->write_char('['); vm->write_char('2'); vm->write_char('J'); }
-                                result = "";
-                            } else if (rv_strcmp(cmd, "dmesg") == 0) {
-                                result = "dmesg: log buffer at 0x87010000 (use kernel/dmesg.sage)";
-                            } else if (rv_strcmp(cmd, "ls") == 0) {
-                                result = "/welcome.txt (95 bytes)";
-                            } else if (rv_strcmp(cmd, "cat") == 0) {
-                                result = "Usage: cat <filename>";
-                            } else if (rv_strcmp(cmd, "mem") == 0) {
-                                result = "Memory: PMM bump allocator, 256 pages, 1 MiB arena";
-                            } else if (rv_strcmp(cmd, "ps") == 0) {
-                                result = "PID  NAME        STATE\n  0  shell       RUNNING";
-                            } else if (rv_strcmp(cmd, "halt") == 0) {
-                                result = "!HALT!";
-                            } else if (cmd[0] != '\0') {
-                                result = "Unknown command. Type 'help' for available commands.";
-                            }
-                            
-                            // Check for halt command
-                            if (rv_strcmp(result, "!HALT!") == 0) {
-                                vm->halted = 1;
-                                vm->running = 0;
-                                if (vm->write_char) {
+                            // Print the command result directly
+                            if (vm->write_char) {
+                                if (rv_strcmp(cmd, "help") == 0) {
+                                    rv_print_str(vm, "Commands: help version about clear dmesg ls mem ps halt");
+                                } else if (rv_strcmp(cmd, "version") == 0) {
+                                    rv_print_str(vm, "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)");
+                                } else if (rv_strcmp(cmd, "about") == 0) {
+                                    rv_print_str(vm, "SageOS-RV: Pure Sage OS for RISC-V 64. SageVM + MetalRV64.");
+                                } else if (rv_strcmp(cmd, "clear") == 0) {
+                                    vm->write_char(27); vm->write_char('['); vm->write_char('2'); vm->write_char('J');
+                                } else if (rv_strcmp(cmd, "dmesg") == 0) {
+                                    rv_print_str(vm, "dmesg: log buffer at 0x87010000 (256 msgs, 32KB) — persistent across warm boot");
+                                } else if (rv_strcmp(cmd, "ls") == 0) {
+                                    rv_print_str(vm, "/welcome.txt (95 bytes)");
+                                } else if (rv_strcmp(cmd, "mem") == 0) {
+                                    rv_print_str(vm, "Memory: PMM bump allocator, 256 pages (1 MiB arena), 32768 total pages available");
+                                } else if (rv_strcmp(cmd, "ps") == 0) {
+                                    rv_print_str(vm, "PID  NAME        STATE\n  0  shell       RUNNING\n  1  idle        READY");
+                                } else if (rv_strcmp(cmd, "halt") == 0) {
                                     rv_print_str(vm, "Halting system...\n");
+                                    vm->halted = 1;
+                                    vm->running = 0;
+                                    return;
+                                } else if (cmd[0] != '\0') {
+                                    rv_print_str(vm, "Unknown: "); rv_print_str(vm, cmd);
+                                    rv_print_str(vm, " — type 'help' for commands.");
                                 }
-                                return;
                             }
-                            
-                            int ridx = rv_string_intern(vm, result, rv_strlen(result));
-                            vm->x[10] = (MetalValue){MV_STR, {.str_idx = ridx}};
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "rtos_tick") == 0) {
+                            // Poll SIP.STIP for timer interrupt, arm next tick via SBI
+                            unsigned long sip;
+                            __asm__ volatile("csrr %0, sip" : "=r"(sip));
+                            if (sip & (1 << 5)) {  // STIP
+                                __asm__ volatile("csrc sip, %0" :: "r"(1<<5));
+                                // Arm next timer via SBI: set_timer(time + 500000)
+                                unsigned long time;
+                                __asm__ volatile("rdtime %0" : "=r"(time));
+                                register long a7 __asm__("a7") = 0x54494D45;
+                                register long a6 __asm__("a6") = 0;
+                                register long a0 __asm__("a0") = time + 500000;
+                                __asm__ volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a6) : "memory");
+                                vm->x[10] = mv_num(1);  // tick occurred
+                            } else {
+                                vm->x[10] = mv_num(0);  // no tick
+                            }
                         } else if (rv_strcmp(b_name, "SRVM") == 0) {
                             int d_idx = rv_dict_new(vm);
                             rv_dict_set(vm, d_idx,

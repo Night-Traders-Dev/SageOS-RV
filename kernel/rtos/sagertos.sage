@@ -88,12 +88,26 @@ proc rtos_schedule():
     return -1
 
 proc rtos_run():
-    ## Main scheduler loop
+    ## Main scheduler loop with timer-based preemption
     print("SageRTOS: starting scheduler (")
     print(rtos_task_count)
     print(" tasks)\n\n")
 
     while rtos_running and rtos_task_count > 0:
+        ## Check for timer tick (preemption)
+        let ticked = rtos_tick()
+        if ticked == 1:
+            rtos_tick_count = rtos_tick_count + 1
+            ## Wake sleeping tasks
+            let i = 0
+            while i < rtos_task_count:
+                let t = rtos_tasks[i]
+                if t != nil and t.state == TASK_SLEEPING:
+                    if rtos_tick_count >= t.sleep_until:
+                        t.state = TASK_READY
+                i = i + 1
+
+        ## Find next ready task
         let task_id = rtos_schedule()
         if task_id < 0:
             rtos_idle()
@@ -107,8 +121,6 @@ proc rtos_run():
         task.entry()
         if task.state == TASK_RUNNING:
             task.state = TASK_READY
-
-        rtos_tick_count = rtos_tick_count + 1
 
 proc rtos_idle():
     ## Called when no tasks are ready
