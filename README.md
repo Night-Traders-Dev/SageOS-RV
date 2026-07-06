@@ -271,8 +271,7 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ## Known Limitations
 
-- **AIC8800 WiFi**: Requires firmware blob embedded in kernel image for full operation.
-- **Preemptive RTOS**: Cooperative only — timer interrupt → context switch needs C/asm bridge.
+
 - **Hardware testing**: LicheeRV Nano W not yet tested on physical hardware.
 
 ---
