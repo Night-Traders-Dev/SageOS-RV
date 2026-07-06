@@ -152,25 +152,13 @@ and periodic `timer_poll()` to keep `uptime` accurate.
 
 ## Known Issues
 
-### sstatus.SIE is WARL-0 in QEMU 10.2.1
-
-On QEMU's `-cpu rv64` for the `virt` machine, writing to `sstatus` bit 0
-(SIE) appears to be silently ignored. The register reads back the same value
-regardless of what is written. This means supervisor interrupt delivery via
-`stvec` does not work in emulation.
-
-**Workaround**: Poll `SIP.STIP` in the main loop and call the timer handler
-directly. This is a QEMU emulation artifact — hardware RISC-V cores do not
-exhibit this behavior.
 
 ### Kernel Global Initialization
 
-The kernel Sage code (`kmain.sage`) uses `OBJ_GET_GLOBAL` to resolve symbols
-like `mem_write`, `UART_BASE`, etc. The MetalRV64 VM currently lacks built-in
-global registration — chunks attempting to resolve these globals during sequential
-initialization will receive nil values. This requires either:
-- Pre-populating the global namespace with kernel builtins before chunk execution
-- Adapting the kernel Sage code to not depend on globals at init time
+The kernel Sage code (`kernel/core/kmain.sage`) uses two-phase initialization
+to resolve symbols natively. The MetalRV64 VM registers built-ins via C during
+initialization.
+
 
 ### SageVM --riscv SGRV Format
 

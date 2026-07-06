@@ -39,7 +39,7 @@ SageOS-RV uses a layered architecture with optional SageVM runtime:
 | Mode | Build | Description |
 |---|---|---|
 | C-only (default) | `./sagemake build` | Direct C kernel with UART echo loop — fast build, no SageVM dependency |
-| Full SageVM | `SAGEVM=1 ./sagemake build` | Sage kernel → MetalRV64VM → Sage shell with `readline()` |
+| Full SageVM | `SAGEVM_ENABLED=1 ./sagemake build` | Sage kernel → MetalRV64VM → Sage shell with `readline()` |
 
 ### Compilation Flow
 
@@ -83,7 +83,7 @@ cd SageOS-RV
 ./sagemake qemu           # boot in QEMU
 
 # Full SageVM build:
-SAGEVM=1 ./sagemake build
+SAGEVM_ENABLED=1 ./sagemake build
 
 # Board-specific builds:
 BOARD=licheerv-nano ./sagemake build
@@ -129,16 +129,16 @@ Commands: help version about clear dmesg ls mem ps halt
 | `build-run` | `build` then `qemu` |
 | `flash` | Write kernel image to SD card for physical boot |
 | `test` | Run automated test suite |
-| `compile-kernel` | `sagevm compile kernel/core/kmain.sage --riscv` |
+| `compile-kernel` | `sagevm compile kernel/core/kmain.sage kernel/core/kmain.sgvm --riscv` |
 | `run-kernel` | `sagevm run kernel/core/kmain.sgvm --riscv` |
-| `compile-shell` | `sagevm compile shell/shell.sage --riscv` |
+| `compile-shell` | `sagevm compile shell/shell.sage shell/shell.sgvm --riscv` |
 | `run-shell` | `sagevm run shell/shell.sgvm --riscv` |
 | `setup-srvm` | Copy SRVM sources from SageVM submodule |
 | `setup-metalvm` | Validate MetalVM headers |
 | `version` | Print toolchain versions |
 
 Board selection: `BOARD=licheerv-nano ./sagemake build`  
-SageVM enable: `SAGEVM=1 ./sagemake build`
+SageVM enable: `SAGEVM_ENABLED=1 ./sagemake build`
 
 ---
 
@@ -280,7 +280,6 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ## Known Limitations
 
-- **SGRV string comparison**: `==` on strings needs SageVM binary rebuild after compiler changes. Workaround: `shell_exec()` builtin dispatches commands in C.
 - **AIC8800 WiFi**: Requires firmware blob embedded in kernel image for full operation.
 - **Preemptive RTOS**: Cooperative only — timer interrupt → context switch needs C/asm bridge.
 - **Hardware testing**: LicheeRV Nano W not yet tested on physical hardware.

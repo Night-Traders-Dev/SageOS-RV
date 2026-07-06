@@ -41,10 +41,10 @@ proc fat_read_mbr(disk_base):
 
         if ptype != 0 and sectors > 0:
             push(partitions, {
-                type:       ptype,
-                lba_start:  lba_start,
-                sectors:    sectors,
-                index:      i
+                "type":       ptype,
+                "lba_start":  lba_start,
+                "sectors":    sectors,
+                "index":      i
             })
         i = i + 1
     return partitions
@@ -67,17 +67,16 @@ proc fat_read_bpb(disk_base, part_start):
     let backup_boot       = mem_read(disk_base + bpb_off + 50, 2)
 
     return {
-        bytes_per_sector:     bytes_per_sector,
-        sectors_per_cluster:  sectors_per_cluster,
-        reserved_sectors:     reserved_sectors,
-        num_fats:             num_fats,
-        sectors_per_fat:      sectors_per_fat,
-        root_cluster:         root_cluster,
-        part_start:           part_start,
-        ## Computed values
-        fat_start_sector:     part_start + reserved_sectors,
-        data_start_sector:    part_start + reserved_sectors + (num_fats * sectors_per_fat),
-        cluster_size:         bytes_per_sector * sectors_per_cluster
+        "bytes_per_sector":     bytes_per_sector,
+        "sectors_per_cluster":  sectors_per_cluster,
+        "reserved_sectors":     reserved_sectors,
+        "num_fats":             num_fats,
+        "sectors_per_fat":      sectors_per_fat,
+        "root_cluster":         root_cluster,
+        "part_start":           part_start,
+        "fat_start_sector":     part_start + reserved_sectors,
+        "data_start_sector":    part_start + reserved_sectors + (num_fats * sectors_per_fat),
+        "cluster_size":         bytes_per_sector * sectors_per_cluster
     }
 
 ## --- FAT Chain Walker ---
@@ -117,9 +116,9 @@ proc fat_parse_dir_entry(disk_base, base_offset, entry_index):
 
     ## Read first byte to check if entry exists
     let first_byte = mem_read(disk_base + off, 1)
-    if first_byte == 0:      ## End of directory
+    if first_byte == 0:
         return nil
-    if first_byte == 0xE5:   ## Deleted entry
+    if first_byte == 0xE5:
         return nil
 
     ## Check attributes
@@ -134,10 +133,11 @@ proc fat_parse_dir_entry(disk_base, base_offset, entry_index):
     let i = 0
     while i < 8:
         let c = mem_read(disk_base + off + i, 1)
-        if c == 0x20:  ## Space padding
-            break
-        name = name + chr(c)
-        i = i + 1
+        if c == 0x20:
+            i = 8
+        else:
+            name = name + chr(c)
+            i = i + 1
 
     ## Extension
     let ext = mem_read(disk_base + off + 8, 1)
@@ -147,9 +147,10 @@ proc fat_parse_dir_entry(disk_base, base_offset, entry_index):
         while i < 3:
             let c = mem_read(disk_base + off + 8 + i, 1)
             if c == 0x20:
-                break
-            name = name + chr(c)
-            i = i + 1
+                i = 3
+            else:
+                name = name + chr(c)
+                i = i + 1
 
     ## File size
     let file_size = mem_read(disk_base + off + 28, 4)
@@ -160,11 +161,11 @@ proc fat_parse_dir_entry(disk_base, base_offset, entry_index):
     let start_cluster = (cluster_hi << 16) | cluster_lo
 
     return {
-        name:           name,
-        size:           file_size,
-        attr:           attr,
-        start_cluster:  start_cluster,
-        is_dir:         (attr & ATTR_DIRECTORY) != 0
+        "name":           name,
+        "size":           file_size,
+        "attr":           attr,
+        "start_cluster":  start_cluster,
+        "is_dir":         (attr & ATTR_DIRECTORY) != 0
     }
 
 ## --- File / Directory Operations ---

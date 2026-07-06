@@ -67,6 +67,7 @@ proc pmm_alloc():
                     if page_idx < total_pages:
                         pmm_mark_used(page_idx)
                         return mem_base + page_idx * PAGE_SIZE
+                    return 0
                 bit = bit + 1
         word = word + 1
 
@@ -74,6 +75,8 @@ proc pmm_alloc():
 
 ## Free a physical page
 proc pmm_free(addr):
+    if addr < mem_base or (addr % PAGE_SIZE) != 0:
+        return
     let page_idx = (addr - mem_base) / PAGE_SIZE
     if page_idx >= 0 and page_idx < total_pages:
         pmm_mark_free(page_idx)

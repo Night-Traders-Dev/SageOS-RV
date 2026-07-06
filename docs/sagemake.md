@@ -33,16 +33,17 @@ Full build pipeline:
 
 1. Generate boot assembly from `boot/arch/rv64/boot.S`
 2. Compile `boot/arch/rv64/boot.S` → `build/boot.o`
-3. **`sagevm compile kernel/kmain.sage kernel/kmain.sgvm --riscv`** (SGRV RISC-V bytecode)
-4. **`sagevm compile shell/shell.sage shell/shell.sgvm --riscv`** (SGRV RISC-V bytecode)
-5. Embed `kernel/kmain.sgvm` → `build/kernel_sgvm.o` (ELF object, section `.sgvm_kernel`)
-6. Embed `shell/shell.sgvm` → `build/shell_sgvm.o` (ELF object, section `.sgvm_shell`)
-7. Compile SageRTOS (if present)
-8. Compile MetalRV64 VM (`metal_rv64_vm_impl.c`) + stack VM (`metal_vm_impl.c`)
-9. Compile kernel C (`fallback_kernel.c`), dtb.c, vmm.c with `-nostdlib -ffreestanding`
-10. Compile drivers from `drivers/*.sage`
-11. Link everything with `linker.ld` → `build/sageos.elf`
-12. `objcopy -O binary` → `images/sageos.bin`
+3. Build root filesystem (`rootfs.bin`) and embed as `.rootfs` section
+4. **`sagevm compile kernel/core/kmain.sage kernel/core/kmain.sgvm --riscv`** (SGRV RISC-V bytecode)
+5. **`sagevm compile shell/shell.sage shell/shell.sgvm --riscv`** (SGRV RISC-V bytecode)
+6. Embed `kernel/core/kmain.sgvm` → `build/kernel_sgvm.o` (ELF object, section `.sgvm_kernel`)
+7. Embed `shell/shell.sgvm` → `build/shell_sgvm.o` (ELF object, section `.sgvm_shell`)
+8. Compile SageRTOS (if present)
+9. Compile MetalRV64 VM (`metal_rv64_vm_impl.c`) + stack VM (`metal_vm_impl.c`)
+10. Compile kernel C (`fallback_kernel.c`), dtb.c, vmm.c with `-nostdlib -ffreestanding`
+11. Compile drivers from `drivers/*.sage`
+12. Link everything with `linker.ld` → `build/sageos.elf`
+13. `objcopy -O binary` → `images/sageos.bin`
 
 ```bash
 ./sagemake build
@@ -54,7 +55,7 @@ SAGELANG_CORE=/opt/sagelang/core ./sagemake build
 
 ### `compile-kernel`
 
-Compile `kernel/kmain.sage` to `kernel/kmain.sgvm` using `sagevm compile --riscv`.
+Compile `kernel/core/kmain.sage` to `kernel/core/kmain.sgvm` using `sagevm compile --riscv`.
 
 ```bash
 ./sagemake compile-kernel
@@ -66,7 +67,7 @@ Skips gracefully if `sagevm` is not found.
 
 ### `run-kernel`
 
-Run `kernel/kmain.sgvm` directly via `sagevm run --riscv` on the host. Useful for iterating on kernel Sage code without a full QEMU build cycle.
+Run `kernel/core/kmain.sgvm` directly via `sagevm run --riscv` on the host. Useful for iterating on kernel Sage code without a full QEMU build cycle.
 
 ```bash
 ./sagemake run-kernel
@@ -218,7 +219,7 @@ If none are found, `sagevm`-dependent steps warn and skip — the C transpile pa
 
 ### Iterate on kernel Sage code
 ```bash
-# Edit kernel/kmain.sage
+# Edit kernel/core/kmain.sage
 ./sagemake compile-kernel  # fast: ~1s
 ./sagemake run-kernel      # test on host
 ./sagemake build-run       # full cycle

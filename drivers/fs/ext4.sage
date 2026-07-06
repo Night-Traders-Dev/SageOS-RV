@@ -83,32 +83,32 @@ let EXT4_S_IFMT    = 0xF000
 
 let EXT4_EXTENT_MAGIC = 0xF30A
 
-struct ext4_extent_header:
-    magic:  2 bytes
-    entries: 2 bytes
-    max:     2 bytes
-    depth:   2 bytes
+## struct ext4_extent_header:
+##     magic:  2 bytes
+##     entries: 2 bytes
+##     max:     2 bytes
+##     depth:   2 bytes
 
-struct ext4_extent_idx:
-    block:      4 bytes
-    leaf_lo:    4 bytes
-    leaf_hi:    2 bytes
-    unused:     2 bytes
+## struct ext4_extent_idx:
+##     block:      4 bytes
+##     leaf_lo:    4 bytes
+##     leaf_hi:    2 bytes
+##     unused:     2 bytes
 
-struct ext4_extent:
-    block:      4 bytes
-    len:        2 bytes
-    start_hi:   2 bytes
-    start_lo:   4 bytes
+## struct ext4_extent:
+##     block:      4 bytes
+##     len:        2 bytes
+##     start_hi:   2 bytes
+##     start_lo:   4 bytes
 
 ## --- Directory Entry ---
 
-struct ext4_dir_entry:
-    inode:    4 bytes
-    rec_len:  2 bytes
-    name_len: 1 byte
-    file_type: 1 byte
-    name:     variable
+## struct ext4_dir_entry:
+##     inode:    4 bytes
+##     rec_len:  2 bytes
+##     name_len: 1 byte
+##     file_type: 1 byte
+##     name:     variable
 
 let EXT4_FT_UNKNOWN  = 0
 let EXT4_FT_REG_FILE = 1
@@ -139,18 +139,18 @@ proc ext4_read_superblock(disk_base):
     let block_size = 1024 << log_block_size
 
     let sb = {
-        inodes_count:       mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODES_COUNT, 4),
-        blocks_count:       mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_BLOCKS_COUNT, 4),
-        free_blocks_count:  mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FREE_BLOCKS_COUNT, 4),
-        free_inodes_count:  mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FREE_INODES_COUNT, 4),
-        log_block_size:     log_block_size,
-        block_size:         block_size,
-        blocks_per_group:   mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_BLOCKS_PER_GROUP, 4),
-        inodes_per_group:   mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODES_PER_GROUP, 4),
-        inode_size:         mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODE_SIZE_FIELD, 2),
-        magic:              magic,
-        feat_incompat:      mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FEAT_INCOMPAT, 4),
-        feat_ro_compat:     mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FEAT_RO_COMPAT, 4)
+        "inodes_count":       mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODES_COUNT, 4),
+        "blocks_count":       mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_BLOCKS_COUNT, 4),
+        "free_blocks_count":  mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FREE_BLOCKS_COUNT, 4),
+        "free_inodes_count":  mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FREE_INODES_COUNT, 4),
+        "log_block_size":     log_block_size,
+        "block_size":         block_size,
+        "blocks_per_group":   mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_BLOCKS_PER_GROUP, 4),
+        "inodes_per_group":   mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODES_PER_GROUP, 4),
+        "inode_size":         mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_INODE_SIZE_FIELD, 2),
+        "magic":              magic,
+        "feat_incompat":      mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FEAT_INCOMPAT, 4),
+        "feat_ro_compat":     mem_read(disk_base + EXT4_SUPERBLOCK_OFFSET + SB_FEAT_RO_COMPAT, 4)
     }
 
     ## Cache globals for quick access
@@ -174,16 +174,18 @@ proc ext4_read_superblock(disk_base):
 
 proc ext4_read_bg_desc(disk_base, sb, group):
     ## Read block group descriptor
-    let desc_table_block = sb.block_size == 1024 ? 2 : 1
+    let desc_table_block = 1
+    if sb.block_size == 1024:
+        desc_table_block = 2
     let desc_offset = EXT4_SUPERBLOCK_OFFSET + (desc_table_block * sb.block_size)
     let entry_offset = desc_offset + (group * ext4_desc_size)
 
     return {
-        block_bitmap:   mem_read(disk_base + entry_offset + BG_BLOCK_BITMAP, 4),
-        inode_bitmap:   mem_read(disk_base + entry_offset + BG_INODE_BITMAP, 4),
-        inode_table:    mem_read(disk_base + entry_offset + BG_INODE_TABLE, 4),
-        free_blocks:    mem_read(disk_base + entry_offset + BG_FREE_BLOCKS_COUNT, 2),
-        free_inodes:    mem_read(disk_base + entry_offset + BG_FREE_INODES_COUNT, 2)
+        "block_bitmap":   mem_read(disk_base + entry_offset + BG_BLOCK_BITMAP, 4),
+        "inode_bitmap":   mem_read(disk_base + entry_offset + BG_INODE_BITMAP, 4),
+        "inode_table":    mem_read(disk_base + entry_offset + BG_INODE_TABLE, 4),
+        "free_blocks":    mem_read(disk_base + entry_offset + BG_FREE_BLOCKS_COUNT, 2),
+        "free_inodes":    mem_read(disk_base + entry_offset + BG_FREE_INODES_COUNT, 2)
     }
 
 ## --- Inode ---
@@ -217,13 +219,13 @@ proc ext4_read_inode(disk_base, sb, inode_num):
         i = i + 1
 
     return {
-        inode:    inode_num,
-        mode:     mode,
-        size:     size,
-        blocks:   blocks,
-        is_dir:   (mode & EXT4_S_IFMT) == EXT4_S_IFDIR,
-        is_file:  (mode & EXT4_S_IFMT) == EXT4_S_IFREG,
-        is_link:  (mode & EXT4_S_IFMT) == EXT4_S_IFLNK
+        "inode":    inode_num,
+        "mode":     mode,
+        "size":     size,
+        "blocks":   blocks,
+        "is_dir":   (mode & EXT4_S_IFMT) == EXT4_S_IFDIR,
+        "is_file":  (mode & EXT4_S_IFMT) == EXT4_S_IFREG,
+        "is_link":  (mode & EXT4_S_IFMT) == EXT4_S_IFLNK
     }
 
 ## --- Extent Tree Walker ---
@@ -234,7 +236,7 @@ proc ext4_read_extent_header(disk_base, block_offset):
     let entries = mem_read(disk_base + block_offset + 2, 2)
     let max_entries = mem_read(disk_base + block_offset + 4, 2)
     let depth = mem_read(disk_base + block_offset + 6, 2)
-    return {magic: magic, entries: entries, max: max_entries, depth: depth}
+    return {"magic": magic, "entries": entries, "max": max_entries, "depth": depth}
 
 proc ext4_extent_block_to_offset(disk_base, sb, block_num):
     ## Convert block number to byte offset
@@ -356,15 +358,16 @@ proc ext4_read_dir(disk_base, sb, inode):
                 name = name + raw[pos + 8 + i]
                 i = i + 1
             push(entries, {
-                inode:    inode_num,
-                name:     name,
-                type:     file_type,
-                rec_len:  rec_len
+                "inode":    inode_num,
+                "name":     name,
+                "type":     file_type,
+                "rec_len":  rec_len
             })
 
         if rec_len == 0:
-            break
-        pos = pos + rec_len
+            pos = inode.size
+        else:
+            pos = pos + rec_len
 
     return entries
 
@@ -406,11 +409,11 @@ proc ext4_resolve_path(disk_base, sb, path):
 proc ext4_split_path(path):
     ## Split "/home/user/file" into ["home", "user", "file"]
     let parts = array(16)
-    let start = 1  ## Skip leading '/'
+    let start = 1  ## Skip leading "/"
     let current = ""
     let i = start
     while i <= len(path):
-        if i == len(path) or path[i] == '/':
+        if i == len(path) or path[i] == "/":
             if current != "":
                 push(parts, current)
                 current = ""
@@ -431,9 +434,12 @@ proc ext4_mount(disk_base):
     ext4_fs_mounted = true
 
     print("ext4: mounted (")
-    print(sb.block_size); print("B blocks, ")
-    print(sb.blocks_count); print(" blocks, ")
-    print(sb.inodes_count); print(" inodes)\n")
+    print(sb.block_size)
+    print("B blocks, ")
+    print(sb.blocks_count)
+    print(" blocks, ")
+    print(sb.inodes_count)
+    print(" inodes)\n")
     return true
 
 proc ext4_stat(disk_base, path):
@@ -450,8 +456,8 @@ proc ext4_stat(disk_base, path):
         return nil
 
     return {
-        inode:  inode_num,
-        size:   inode.size,
-        is_dir: inode.is_dir,
-        is_file: inode.is_file
+        "inode":  inode_num,
+        "size":   inode.size,
+        "is_dir": inode.is_dir,
+        "is_file": inode.is_file
     }
