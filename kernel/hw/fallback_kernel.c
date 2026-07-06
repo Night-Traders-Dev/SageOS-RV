@@ -24,6 +24,11 @@
 #include <stddef.h>
 #include "metal_rv64_vm.h"
 
+#ifdef SAGE_RTOS
+#include "sagertos_glue.h"
+#endif
+
+
 /* --------------------------------------------------------------------------
  * UART 16550A  (QEMU virt / LicheeRV Nano base address)
  * -------------------------------------------------------------------------- */
@@ -321,6 +326,26 @@ static void _halt(const char *reason) {
 }
 
 /* --------------------------------------------------------------------------
+ * Trap Handler (C/asm bridge for timer)
+ * -------------------------------------------------------------------------- */
+void trap_handler_c(uint64_t *regs, uint64_t cause, uint64_t tval) {
+    (void)regs; (void)tval;
+    if ((cause & 0x8000000000000000ULL) && (cause & 0xFF) == 5) {
+        // Supervisor timer interrupt
+        unsigned long time;
+        __asm__ volatile("rdtime %0" : "=r"(time));
+        register long a7 __asm__("a7") = 0x54494D45; // SBI_SET_TIMER
+        register long a6 __asm__("a6") = 0;
+        register long a0 __asm__("a0") = time + 500000;
+        __asm__ volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a6) : "memory");
+        
+#ifdef SAGE_RTOS
+        sagertos_glue_tick();
+#endif
+    }
+}
+
+/* --------------------------------------------------------------------------
  * sage_kernel_main — called from boot/arch/rv64/boot.S
  * -------------------------------------------------------------------------- */
 void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
@@ -333,6 +358,13 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
     uart_puts("SBIK!\n");
     uart_puts("[SageOS] Booting...\n\n");
     dmesg_write("BOOT: SageOS kernel entry (sage_kernel_main)");
+
+    extern void trap_vector(void);
+    __asm__ volatile("csrw stvec, %0" :: "r"((uintptr_t)trap_vector));
+    // Enable timer interrupts
+    __asm__ volatile("csrs sie, %0" :: "r"(1 << 5));
+    __asm__ volatile("csrs sstatus, %0" :: "r"(1 << 1));
+
 
 #ifdef CONFIG_SAGEVM
     dmesg_write("BOOT: SageVM mode — loading MetalRV64VM");

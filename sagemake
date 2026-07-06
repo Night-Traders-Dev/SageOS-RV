@@ -396,9 +396,10 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
         shell_sgvm_obj=$(embed_shell_sgvm)
     fi
 
-    ## 4. RTOS (pure Sage — no C compilation needed)
-    # SageRTOS is compiled as part of the kernel .sgvm and runs inside MetalRV64VM
-
+    ## 4. RTOS (C/asm bridge)
+    if rtos_available; then
+        compile_rtos
+    fi
     ## 5. MetalVM
     METAL_OBJS=()
     compile_metalvm

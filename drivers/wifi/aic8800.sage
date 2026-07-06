@@ -4,10 +4,16 @@
 ## LicheeRV Nano W onboard AIC8800D over SDIO.
 
 proc aic8800_init():
-    print("[WiFi] AIC8800D driver placeholder\n")
+    print("[WiFi] AIC8800D driver initializing\n")
     print("[WiFi] SDIO @ 0x04300000, IPC @ 0x87000000\n")
+    let fw_size = __builtin__.aic8800_load_fw()
+    if fw_size > 0:
+        print("[WiFi] Successfully loaded AIC8800 firmware blob via SDIO (")
+        print(int(fw_size))
+        print(" bytes)\n")
+    else:
+        print("[WiFi] ERROR: Missing or empty AIC8800 firmware blob!\n")
     return 0
-
 proc aic8800_scan():
     print("[WiFi] Scan not yet implemented\n")
     return 0

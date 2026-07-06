@@ -359,6 +359,7 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "dmesg_read");
     metal_rv64_vm_register_builtin(vm, "rtos_tick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
+    metal_rv64_vm_register_builtin(vm, "aic8800_load_fw");
 }
 
 RV64Instruction rv64_decode(unsigned int raw) {
@@ -861,6 +862,11 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                 int eidx = rv_string_intern(vm, src, rv_strlen(src));
                                 vm->x[10] = (MetalValue){MV_STR, {.str_idx = eidx}};
                             }
+                        } else if (rv_strcmp(b_name, "aic8800_load_fw") == 0) {
+                            extern uint8_t _aic_fw_start[];
+                            extern uint8_t _aic_fw_end[];
+                            int fw_sz = (int)(_aic_fw_end - _aic_fw_start);
+                            vm->x[10] = mv_num(fw_sz);
                         } else if (rv_strcmp(b_name, "dmesg_count") == 0) {
                             volatile int *dbase = (volatile int *)(uintptr_t)0x87010000UL;
                             vm->x[10] = mv_num(dbase[1]);
