@@ -161,67 +161,41 @@ SageVM enable: `SAGEVM_ENABLED=1 ./sagemake build`
 
 ## Repository Layout
 
-```
-SageOS-RV/
-├── boot/arch/rv64/
-│   ├── boot.S                    Bare-metal entry (OpenSBI S-mode handoff)
-│   ├── linker.ld                 QEMU virt memory layout
-│   └── linker-licheerv.ld        LicheeRV Nano memory layout
-├── kernel/
-│   ├── core/                     Kernel core (Sage)
-│   │   ├── kmain.sage            Kernel entry + init banner
-│   │   ├── panic.sage            Verbose kernel panic (watchdog-integrated)
-│   │   └── errors.sage           Error code registry (11 subsystems)
-│   ├── vm/                       MetalVM implementations (C)
-│   │   ├── metal_vm.h/c          Stack VM + value constructors
-│   │   └── metal_rv64_vm.h/c     RV64 register VM (1170 lines, freestanding)
-│   ├── srvm/                     SRVM module sources (Sage, from SageVM)
-│   │   ├── srvm_core.sage        SRVM core: opcodes, encoding
-│   │   └── srvm_vm.sage          SRVM VM: bytecode interpreter
-│   ├── hw/                       Hardware abstraction (C + Sage)
-│   │   ├── fallback_kernel.c     C boot kernel + MetalRV64 dispatch
-│   │   ├── dtb.c/h + dtb.sage    Device tree parser (C + Sage port)
-│   │   ├── vmm.c/h               SV39 virtual memory (C)
-│   │   ├── sbi.h + sbi.sage      SBI ecall wrappers (C + Sage)
-│   │   └── *.sage                Sage ports of C hardware modules
-│   ├── rtos/                     SageRTOS
-│   │   └── sagertos.sage         Pure-Sage cooperative scheduler
-│   ├── net/                      Network stack (pure Sage)
-│   │   ├── stack.sage            TCP/IP: ETH, ARP, IPv4, ICMP, UDP, TCP
-│   │   ├── dhcp.sage             DHCP client
-│   │   └── wifi_net.sage         WiFi-to-network bridge
-│   ├── crypto/                   Cryptographic library (pure Sage)
-│   │   ├── sha256.sage           SHA-256 (FIPS 180-4 compliant)
-│   │   └── hmac.sage             HMAC-SHA256 (RFC 2104)
-│   ├── ssh/                      SSH client (pure Sage)
-│   │   ├── ssh_client.sage       SSH-2.0 client (RFC 4251-4254)
-│   │   └── cluster_monitor.sage  Multi-node RAM monitor
-│   ├── vfs.sage                  Virtual File System
-│   ├── rootfs.sage               Embedded rootfs driver (SRFS)
-│   ├── dmesg.sage                Persistent diagnostic log
-│   └── vmm.sage                  Pure-Sage SV39 page table walker
-├── shell/
-│   ├── shell.sage                Interactive shell (readline + command dispatch)
-│   └── shell.sgvm                Compiled SGRV bytecode
-├── drivers/
-│   ├── bus/                      I2C, SPI bus drivers
-│   ├── gpio/                     GPIO driver (DesignWare, 4 banks)
-│   ├── wifi/                     WiFi: AIC8800, ESP-AT, abstraction layer
-│   ├── sys/                      PLIC, timer, watchdog, syscon
-│   ├── uart/                     16550A UART driver
-│   ├── fs/                       ext4, FAT32 filesystem drivers
-│   └── boards/                   Board support packages (licheerv.sage)
-├── rootfs/                       Default rootfs files
-├── tests/                        Test suite (shell, drivers, panic)
-├── tools/                        Build tools (mkrootfs.sh)
-├── config/
-│   ├── build.conf                Build configuration
-│   └── boards/                   Board-specific configs
-├── deps/
-│   └── SageVM/                   SageVM submodule (SRVM + compiler)
-├── docs/                         Documentation
-├── sagemake                      Build system
-└── VERSION
+```mermaid
+flowchart LR
+    Root["<b>SageOS-RV/</b>"]
+    
+    Boot["<b>boot/</b><br/><i>Bare-metal entry & linker</i>"]
+    Root --> Boot
+    
+    Root --> Kernel["<b>kernel/</b>"]
+    Root --> Drivers["<b>drivers/</b>"]
+    
+    Shell["<b>shell/</b><br/><i>Interactive prompt</i>"]
+    Root --> Shell
+    
+    Other["<b>sagemake, rootfs/, tests/</b><br/><i>Build tools & testing</i>"]
+    Root --> Other
+
+    Kernel --> K1["<b>core/</b> — kmain, panic, errors"]
+    Kernel --> K2["<b>vm/</b> — MetalVM C adapter"]
+    Kernel --> K3["<b>srvm/</b> — SageVM interpreter"]
+    Kernel --> K4["<b>hw/</b> — C boot kernel, DTB, SBI"]
+    Kernel --> K5["<b>net/</b> — TCP/IP, DHCP, WiFi glue"]
+    Kernel --> K6["<b>rtos/, crypto/, ssh/</b>"]
+    Kernel --> K7["vfs, rootfs, dmesg, vmm"]
+
+    Drivers --> D1["<b>fs/</b> — ext4, FAT32"]
+    Drivers --> D2["<b>bus/</b> — I2C, SPI"]
+    Drivers --> D3["<b>wifi/</b> — AIC8800, ESP-AT"]
+    Drivers --> D4["<b>gpio/, sys/, uart/</b>"]
+
+    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
+    style Kernel fill:#0984e3,color:#fff
+    style Drivers fill:#00b894,color:#fff
+    style Boot fill:#6c5ce7,color:#fff
+    style Shell fill:#fdcb6e,color:#000
+    style Other fill:#636e72,color:#fff
 ```
 
 ---
