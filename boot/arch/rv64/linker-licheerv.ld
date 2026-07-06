@@ -2,7 +2,7 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 MEMORY {
-    RAM (rwx) : ORIGIN = 0x80000000, LENGTH = 254M
+    RAM (rwx) : ORIGIN = 0x80200000, LENGTH = 254M
 }
 
 SECTIONS {
@@ -16,10 +16,28 @@ SECTIONS {
         *(.rodata .rodata.*)
     } > RAM
 
+    .sgvm_kernel : {
+        _kernel_sgvm_start = .;
+        KEEP(*(.sgvm_kernel))
+        _kernel_sgvm_end = .;
+    } > RAM
+
     .sgvm_shell : {
         _shell_sgvm_start = .;
         KEEP(*(.sgvm_shell))
         _shell_sgvm_end = .;
+    } > RAM
+
+    .aic_fw : {
+        _aic_fw_start = .;
+        KEEP(*(.aic_fw))
+        _aic_fw_end = .;
+    } > RAM
+
+    .rootfs : {
+        _rootfs_start = .;
+        KEEP(*(.rootfs))
+        _rootfs_end = .;
     } > RAM
 
     .data : {

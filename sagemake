@@ -373,6 +373,18 @@ cmd_build() {
         "${BUILD_DIR}/rootfs.bin" "${rootfs_obj}" \
         && ok "rootfs embedded" || fail "objcopy embed failed for rootfs"
 
+    ## 3.1 Embed AIC8800 firmware
+    local aic_fw_obj=""
+    if [ -f "${SCRIPT_DIR}/drivers/wifi/firmware/aic8800_fw.bin" ]; then
+        info "Embedding AIC8800 firmware..."
+        aic_fw_obj="${BUILD_DIR}/aic8800_fw_obj.o"
+        $OBJCOPY -I binary -O elf64-littleriscv -B riscv \
+            --rename-section .data=.aic_fw \
+            --set-section-flags .aic_fw=alloc,load,readonly \
+            "${SCRIPT_DIR}/drivers/wifi/firmware/aic8800_fw.bin" "${aic_fw_obj}" \
+            && ok "aic8800 firmware embedded" || fail "objcopy embed failed for aic8800_fw"
+    fi
+
     ## 2. Compile .sgvm blobs
     compile_kernel_sgvm
     compile_shell_sgvm
@@ -425,6 +437,9 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
     ## 8. Link
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"
+    if [ "$BOARD" = "licheerv-nano" ]; then
+        link_script="${SCRIPT_DIR}/boot/arch/rv64/linker-licheerv.ld"
+    fi
 
     local rtos_objs=()
     if rtos_available; then
@@ -437,6 +452,9 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
     if [ -n "$kernel_sgvm_obj" ]; then sgvm_objs="$kernel_sgvm_obj"; fi
     if [ -n "$shell_sgvm_obj" ]; then sgvm_objs="$sgvm_objs $shell_sgvm_obj"; fi
 
+    local extra_objs=""
+    if [ -n "$aic_fw_obj" ]; then extra_objs="$aic_fw_obj"; fi
+
     $LD -T "$link_script" -nostdlib \
         "${BUILD_DIR}/boot.o" \
         "${BUILD_DIR}/kernel.o" \
@@ -445,6 +463,7 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
         "${METAL_OBJS[@]}" \
         "${rtos_objs[@]}" \
         $sgvm_objs \
+        $extra_objs \
         "${rootfs_obj}" \
         -o "${BUILD_DIR}/sageos.elf" 2>&1 \
         && ok "Linked sageos.elf" || fail "Link failed"

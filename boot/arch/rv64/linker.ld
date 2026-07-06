@@ -16,10 +16,22 @@ SECTIONS {
         *(.rodata .rodata.*)
     } > RAM
 
+    .sgvm_kernel : {
+        _kernel_sgvm_start = .;
+        KEEP(*(.sgvm_kernel))
+        _kernel_sgvm_end = .;
+    } > RAM
+
     .sgvm_shell : {
         _shell_sgvm_start = .;
         KEEP(*(.sgvm_shell))
         _shell_sgvm_end = .;
+    } > RAM
+
+    .aic_fw : {
+        _aic_fw_start = .;
+        KEEP(*(.aic_fw))
+        _aic_fw_end = .;
     } > RAM
 
     .rootfs : {
