@@ -9,30 +9,21 @@ Sage/C kernel's `sage_kernel_main()`.
 
 ## Memory Layout
 
-```
-Address         | Size   | Purpose
-----------------|--------|-------------------------
-0x80000000      | 256 KB | OpenSBI firmware (ROM)
-0x80200000      | 128 MB | Kernel + RAM (contiguous)
-0x80200000      |   ~1 MB| Kernel .text, .rodata, .data, .bss
-0x81000000      |        | Initial stack pointer
-0x88200000      |        | End of RAM
-```
+```mermaid
+flowchart TD
+    M1["<b>0x80000000</b><br/>OpenSBI FW (256 KB)"]
+    M2["<b>0x80200000</b><br/>Kernel .text, .rodata, .data, .bss (~1 MB)"]
+    M3["<b>0x81000000</b><br/>Stack <i>(grows down)</i> ↓"]
+    M4["Free memory"]
+    M5["<b>0x88200000</b><br/>End of RAM"]
 
-Physical memory: `0x80200000` to `0x88200000` = 128 MB.
+    M1 --- M2 --- M3 --- M4 --- M5
 
-```
-+------------------+ 0x80000000
-| OpenSBI FW       |
-+------------------+ 0x80200000
-| Kernel .text     |
-| Kernel .rodata   |
-| Kernel .data     |
-| Kernel .bss      |
-+------------------+ 0x81000000
-| Stack (grows down)|
-| Free memory      |
-+------------------+ 0x88200000
+    style M1 fill:#6c5ce7,color:#fff
+    style M2 fill:#0984e3,color:#fff
+    style M3 fill:#00b894,color:#fff
+    style M4 fill:#b2bec3,color:#000
+    style M5 fill:#d63031,color:#fff
 ```
 
 ## Boot Flow

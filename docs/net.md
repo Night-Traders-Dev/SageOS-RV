@@ -6,37 +6,42 @@ SageOS-RV includes a full pure-Sage TCP/IP network stack in `kernel/net/`.
 
 ## Protocol Layers
 
-```
-┌─────────────────────────────────────┐
-│  HTTP (RFC 7230) — GET/POST client  │
-├─────────────────────────────────────┤
-│  TLS 1.3 (RFC 8446) — encryption   │
-│  AES-128-GCM, ClientHello handshake │
-├─────────────────────────────────────┤
-│  TCP (RFC 793) — reliable transport │
-│  11-state FSM, 3-way handshake      │
-├─────────────────────────────────────┤
-│  UDP (RFC 768) — datagram transport │
-├─────────────────────────────────────┤
-│  DNS (RFC 1035) — name resolution   │
-│  DHCP (RFC 2131) — IP configuration │
-├─────────────────────────────────────┤
-│  IPv4 (RFC 791) — network layer     │
-│  Checksums, fragmentation, routing  │
-├─────────────────────────────────────┤
-│  Ethernet (IEEE 802.3) — MAC layer  │
-│  14-byte frames, EtherType dispatch │
-├─────────────────────────────────────┤
-│  WiFi Driver (AIC8800D)             │
-│  SDIO transport, firmware loading   │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TB
+    L1["<b>HTTP (RFC 7230)</b> — GET/POST client"]
+    L2["<b>TLS 1.3 (RFC 8446)</b> — encryption<br/><i>AES-128-GCM, ClientHello handshake</i>"]
+    L3["<b>TCP (RFC 793)</b> — reliable transport<br/><i>11-state FSM, 3-way handshake</i>"]
+    L4["<b>UDP (RFC 768)</b> — datagram transport"]
+    L5["<b>DNS (RFC 1035)</b> — name resolution<br/><b>DHCP (RFC 2131)</b> — IP configuration"]
+    L6["<b>IPv4 (RFC 791)</b> — network layer<br/><i>Checksums, fragmentation, routing</i>"]
+    L7["<b>Ethernet (IEEE 802.3)</b> — MAC layer<br/><i>14-byte frames, EtherType dispatch</i>"]
+    L8["<b>WiFi Driver (AIC8800D)</b><br/><i>SDIO transport, firmware loading</i>"]
+    
+    L1 --- L2 --- L3 --- L4 --- L5 --- L6 --- L7 --- L8
+    
+    style L1 fill:#0984e3,color:#fff
+    style L2 fill:#0984e3,color:#fff
+    style L3 fill:#0984e3,color:#fff
+    style L4 fill:#00b894,color:#fff
+    style L5 fill:#00b894,color:#fff
+    style L6 fill:#fdcb6e,color:#000
+    style L7 fill:#e17055,color:#fff
+    style L8 fill:#d63031,color:#fff
 ```
 
 ## Data Flow
 
-```
-TX: App → HTTP → TLS encrypt → TCP segment → IP packet → ETH frame → WiFi
-RX: WiFi → ETH parse → IP parse → TCP reassemble → TLS decrypt → HTTP → App
+```mermaid
+flowchart LR
+    subgraph TX["Transmit (TX)"]
+        direction LR
+        T1[App] --> T2[HTTP] --> T3[TLS encrypt] --> T4[TCP segment] --> T5[IP packet] --> T6[ETH frame] --> T7[WiFi]
+    end
+    
+    subgraph RX["Receive (RX)"]
+        direction LR
+        R1[WiFi] --> R2[ETH parse] --> R3[IP parse] --> R4[TCP reassemble] --> R5[TLS decrypt] --> R6[HTTP] --> R7[App]
+    end
 ```
 
 ## WiFi Integration
@@ -76,53 +81,40 @@ req = http_request("GET", "example.com", "/")
 
 ## TCP State Machine
 
-```
-                         +---------+ ---------\      active OPEN
-                         |  CLOSED |            \    -----------
-                         +---------+<---------\   \   create TCB
-                           |     ^              \   \  snd SYN
-              passive OPEN |     |   CLOSE        \   \
-              ------------ |     | ----------       \   \
-               create TCB  |     | delete TCB         \   \
-                           V     |                      \   \
-                         +---------+            CLOSE    |    \
-                         |  LISTEN |          ---------- |     |
-                         +---------+          delete TCB |     |
-              rcv SYN      |     |     SEND              |     |
-             -----------   |     |    -------            |     V
-+---------+ snd SYN,ACK  /       \   snd SYN          +---------+
-|         |<-----------------           ------------------|         |
-|   SYN   |                    rcv SYN                     |   SYN   |
-|   RCVD  |<-----------------------------------------------|   SENT  |
-|         |                    snd ACK                     |         |
-|         |------------------           -------------------|         |
-+---------+   rcv ACK of SYN  \       /  rcv SYN,ACK       +---------+
-  |           --------------   |     |   -------------
-  |                  x         |     |     snd ACK
-  |                            V     V
-  |  CLOSE                   +---------+
-  | -------                  |  ESTAB  |
-  | snd FIN                  +---------+
-  |                   CLOSE    |     |    rcv FIN
-  V                  -------   |     |    -------
-+---------+          snd FIN  /       \   snd ACK          +---------+
-|  FIN    |<-----------------           ------------------>|  CLOSE  |
-| WAIT-1  |------------------                              |   WAIT  |
-+---------+          rcv FIN  \                            +---------+
-  | rcv ACK of FIN   -------   |                            CLOSE  |
-  | --------------   snd ACK   |                           ------- |
-  V        x                   V                           snd FIN V
-+---------+                  +---------+                   +---------+
-|FINWAIT-2|                  | CLOSING |                   | LAST-ACK|
-+---------+                  +---------+                   +---------+
-  |                rcv ACK of FIN |                 rcv ACK of FIN |
-  |                -------------- |                 -------------- |
-  |   Timeout=2MSL -------------- |                   x    delete TCB
-  V              \               V                            V
-+---------+       \         +---------+                  +---------+
-|  TIME   |        -------->|  CLOSED |                  |  CLOSED |
-|  WAIT   |                 +---------+                  +---------+
-+---------+
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> LISTEN : passive OPEN\n(create TCB)
+    CLOSED --> SYN_SENT : active OPEN\n(create TCB, snd SYN)
+    
+    LISTEN --> SYN_RCVD : rcv SYN\n(snd SYN,ACK)
+    LISTEN --> CLOSED : CLOSE\n(delete TCB)
+    LISTEN --> SYN_SENT : SEND\n(snd SYN)
+    
+    SYN_RCVD --> ESTABLISHED : rcv ACK of SYN
+    SYN_RCVD --> LISTEN : rcv RST
+    SYN_RCVD --> FIN_WAIT_1 : CLOSE\n(snd FIN)
+    
+    SYN_SENT --> SYN_RCVD : rcv SYN\n(snd SYN,ACK)
+    SYN_SENT --> ESTABLISHED : rcv SYN,ACK\n(snd ACK)
+    SYN_SENT --> CLOSED : CLOSE\n(delete TCB)
+    
+    ESTABLISHED --> FIN_WAIT_1 : CLOSE\n(snd FIN)
+    ESTABLISHED --> CLOSE_WAIT : rcv FIN\n(snd ACK)
+    
+    FIN_WAIT_1 --> FIN_WAIT_2 : rcv ACK of FIN
+    FIN_WAIT_1 --> CLOSING : rcv FIN\n(snd ACK)
+    FIN_WAIT_1 --> TIME_WAIT : rcv FIN,ACK\n(snd ACK)
+    
+    FIN_WAIT_2 --> TIME_WAIT : rcv FIN\n(snd ACK)
+    
+    CLOSE_WAIT --> LAST_ACK : CLOSE\n(snd FIN)
+    
+    CLOSING --> TIME_WAIT : rcv ACK of FIN
+    
+    LAST_ACK --> CLOSED : rcv ACK of FIN\n(delete TCB)
+    
+    TIME_WAIT --> CLOSED : Timeout=2MSL\n(delete TCB)
 ```
 
 ## Test Suite

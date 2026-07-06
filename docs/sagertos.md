@@ -6,21 +6,32 @@ SageOS-RV uses [SageRTOS](https://github.com/Night-Traders-Dev/SageRTOS) as a Gi
 
 ## Repository Layout
 
-```
-SageOS-RV/
-├── rtos/
-│   ├── SageRTOS/              ← git submodule
-│   │   ├── src/
-│   │   │   ├── c/             ARM Cortex-M33 original (unchanged)
-│   │   │   ├── rv64/          RISC-V 64 port
-│   │   │   │   ├── sagertos_rv64.h      TCB, API, CSR macros
-│   │   │   │   ├── sagertos_rv64.c      scheduler, tick, queues
-│   │   │   │   └── sagertos_rv64_asm.S  context switch trampoline
-│   │   │   └── sage/
-│   │   │       ├── sagertos.sage        ARM Sage wrapper (original)
-│   │   │       └── sagertos_rv64.sage   RV64 Sage wrapper
-│   ├── sagertos_glue.h        kernel-facing API shim
-│   └── sagertos_glue.c        kernel → RTOS bridge
+```mermaid
+flowchart LR
+    Root["<b>SageOS-RV/rtos/</b>"]
+    
+    Root --> Sub["<b>SageRTOS/</b><br/><i>(git submodule)</i>"]
+    Root --> GlueH["sagertos_glue.h<br/><i>kernel-facing API shim</i>"]
+    Root --> GlueC["sagertos_glue.c<br/><i>kernel → RTOS bridge</i>"]
+    
+    Sub --> Src["<b>src/</b>"]
+    Src --> C_ARM["<b>c/</b><br/><i>ARM Cortex-M33 original</i>"]
+    Src --> RV64["<b>rv64/</b><br/><i>RISC-V 64 port</i>"]
+    Src --> Sage["<b>sage/</b><br/><i>Sage wrappers</i>"]
+    
+    RV64 --> R1["sagertos_rv64.h<br/><i>TCB, API, CSR macros</i>"]
+    RV64 --> R2["sagertos_rv64.c<br/><i>scheduler, tick, queues</i>"]
+    RV64 --> R3["sagertos_rv64_asm.S<br/><i>context switch trampoline</i>"]
+    
+    Sage --> S1["sagertos.sage<br/><i>ARM wrapper</i>"]
+    Sage --> S2["sagertos_rv64.sage<br/><i>RV64 wrapper</i>"]
+
+    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
+    style Sub fill:#0984e3,color:#fff
+    style Src fill:#0984e3,color:#fff
+    style RV64 fill:#00b894,color:#fff
+    style Sage fill:#00b894,color:#fff
+    style C_ARM fill:#636e72,color:#fff
 ```
 
 ---
