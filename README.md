@@ -9,29 +9,34 @@ Target hardware: LicheeRV Nano W (Sophgo SG2002 + AIC8800 WiFi 6). Development p
 
 SageOS-RV uses a layered architecture with optional SageVM runtime:
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  SageOS-RV kernel image (sageos.elf)                     │
-│                                                          │
-│  ┌─ SageVM Runtime (optional, enabled by default) ─────┐│
-│  │  Layer 3: SRVM — Sage-level VM                       ││
-│  │  kernel/srvm/*.sage                                  ││
-│  │  Compiled into SGRV bytecode via --riscv             ││
-│  │                                                      ││
-│  │  Layer 2: MetalRV64VM — Bare-metal C adapter         ││
-│  │  kernel/vm/metal_rv64_vm_impl.c                      ││
-│  │  Q32.32 fixed-point, no libc, no FPU                 ││
-│  │  RV64I + VMSYS (CALL, PRINT, CMP_BINARY, builtins)   ││
-│  └──────────────────────────────────────────────────────┘│
-│                                                          │
-│  Layer 1: C kernel — Hardware abstraction               │
-│  kernel/hw/fallback_kernel.c, boot.S, dtb.c, vmm.c      │
-│  UART, PMM, VMM, SBI wrappers                           │
-│                                                          │
-│  Embedded sections:                                      │
-│  .sgvm_kernel — kmain.sgvm   .sgvm_shell — shell.sgvm   │
-│  .rootfs      — rootfs.bin   (SRFS archive format)      │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph KernelImage["SageOS-RV kernel image (sageos.elf)"]
+        direction TB
+        
+        subgraph SageVM["SageVM Runtime (optional, enabled by default)"]
+            direction TB
+            L3["<b>Layer 3: SRVM — Sage-level VM</b><br/>kernel/srvm/*.sage<br/><i>Compiled into SGRV bytecode via --riscv</i>"]
+            
+            L2["<b>Layer 2: MetalRV64VM — Bare-metal C adapter</b><br/>kernel/vm/metal_rv64_vm_impl.c<br/><i>Q32.32 fixed-point, no libc, no FPU<br/>RV64I + VMSYS (CALL, PRINT, CMP_BINARY)</i>"]
+            
+            L3 --> L2
+        end
+        
+        L1["<b>Layer 1: C kernel — Hardware abstraction</b><br/>kernel/hw/fallback_kernel.c, boot.S, dtb.c, vmm.c<br/><i>UART, PMM, VMM, SBI wrappers</i>"]
+        
+        Embeds["<b>Embedded sections:</b><br/>.sgvm_kernel — kmain.sgvm<br/>.sgvm_shell — shell.sgvm<br/>.rootfs — rootfs.bin (SRFS archive)"]
+        
+        SageVM --> L1
+        Embeds -.-> L1
+    end
+    
+    style KernelImage fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style SageVM fill:transparent,stroke:#666,stroke-width:1.5px
+    style L3 fill:#2d3436,color:#fff,stroke:#fff,stroke-width:1px
+    style L2 fill:#0984e3,color:#fff,stroke:#fff,stroke-width:1px
+    style L1 fill:#d63031,color:#fff,stroke:#fff,stroke-width:1px
+    style Embeds fill:#00b894,color:#fff,stroke:#fff,stroke-width:1px
 ```
 
 ### Two Operating Modes
@@ -43,22 +48,29 @@ SageOS-RV uses a layered architecture with optional SageVM runtime:
 
 ### Compilation Flow
 
-```
-shell/shell.sage ──────────────────────────┐
-kernel/core/kmain.sage + srvm_*.sage ─────┤
-                                           │
-    sagevm compile --riscv (SageVM SRVM)   │
-                                           ▼
-    .sgrv bytecode (32-bit RV64I instructions)
-                                           │
-    riscv64-linux-gnu-objcopy              │
-                                           ▼
-    section .sgvm_kernel / .sgvm_shell     │
-                                           │
-    riscv64-linux-gnu-ld                   │
-                                           ▼
-    sageos.elf ─► QEMU -cpu rv64           │
-                   -chardev stdio,mux=off  │
+```mermaid
+flowchart TD
+    S1["shell/shell.sage"] --> C1{"sagevm compile --riscv<br/><i>(SageVM SRVM)</i>"}
+    S2["kernel/core/kmain.sage<br/>+ srvm_*.sage"] --> C1
+    
+    C1 --> B1["<b>.sgrv bytecode</b><br/>(32-bit RV64I instructions)"]
+    
+    B1 --> O1{"riscv64-linux-gnu-objcopy"}
+    
+    O1 --> S3["section <b>.sgvm_kernel</b><br/>section <b>.sgvm_shell</b>"]
+    
+    S3 --> L1{"riscv64-linux-gnu-ld"}
+    C2["<b>C kernel objects</b><br/>boot.o, kernel.o, etc."] --> L1
+    
+    L1 --> E1["<b>sageos.elf</b>"]
+    
+    E1 --> Q1["QEMU<br/>-cpu rv64<br/>-chardev stdio,mux=off"]
+    
+    style C1 fill:#6c5ce7,color:#fff
+    style O1 fill:#6c5ce7,color:#fff
+    style L1 fill:#6c5ce7,color:#fff
+    style E1 fill:#00b894,color:#fff
+    style Q1 fill:#d63031,color:#fff
 ```
 
 ---
