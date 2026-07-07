@@ -98,15 +98,16 @@ extern "C" {
 #define RV_VMO_PRINT        0x09
 #define RV_VMO_ARRAY_LEN    0x0A
 #define RV_VMO_PRINTM       0x0B
-#define RV_VMO_CMP_BINARY 0x0D   // Generic binary comparison (type in funct7)
+#define RV_VMO_EXEC_AST     0x0C
+#define RV_VMO_CMP_BINARY   0x0D
 
-// Comparison types for VMO_CMP_BINARY (funct7 field)
-#define CMP_EQ   0
-#define CMP_NEQ  1
-#define CMP_LT   2
-#define CMP_GT   3
-#define CMP_LE   4
-#define CMP_GE   5
+// Comparison types for RV_VMO_CMP_BINARY (encoded in funct7 field)
+#define CMP_EQ  0   // Equal (==)
+#define CMP_NEQ 1   // Not equal (!=)
+#define CMP_LT  2   // Less than (<)
+#define CMP_GT  3   // Greater than (>)
+#define CMP_LE  4   // Less or equal (<=)
+#define CMP_GE  5   // Greater or equal (>=)
 
 // Object Ops (sub_op via rs1 field)
 #define RV_OBJ_GET_GLOBAL   0x00
@@ -247,14 +248,11 @@ void metal_rv64_vm_init(MetalRV64VM* vm);
 // Load compiled SGRV binary into VM
 int metal_rv64_vm_load_binary(MetalRV64VM* vm, const unsigned char* data, int size);
 
-// Register a name as a built-in function in the global namespace
-void metal_rv64_vm_register_builtin(MetalRV64VM* vm, const char* name);
-
-// Register all kernel built-ins (mem_write, mem_read, push, len, array, readline, etc.)
-void metal_rv64_vm_register_kernel_builtins(MetalRV64VM* vm);
-
 // Execute until halt or error
 int metal_rv64_vm_run(MetalRV64VM* vm);
+
+// Register kernel-provided builtins into the VM
+void metal_rv64_vm_register_kernel_builtins(MetalRV64VM* vm);
 
 // Execute a single instruction (for cooperative multitasking)
 int metal_rv64_vm_step(MetalRV64VM* vm);

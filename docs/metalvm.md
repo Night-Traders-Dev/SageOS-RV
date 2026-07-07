@@ -32,6 +32,9 @@ Added in v0.3.0: generic binary comparison opcode (sub_op=0x0D). The `funct7` fi
 
 Supports MV_NUM (numeric), MV_STR (string via rv_strcmp), and MV_BOOL comparisons. This enables `if cmd == "help":` in Sage code compiled with `--riscv`.
 
+The C backend defines the opcode and comparison types in `kernel/vm/metal_rv64_vm.h`
+(`RV_VMO_CMP_BINARY`, `CMP_EQ`..`CMP_GE`) and dispatches them in `handle_vmsys()`.
+
 ---
 
 ## Execution Model

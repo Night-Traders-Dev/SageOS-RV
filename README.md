@@ -269,6 +269,19 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ---
 
+## Recent Changes
+
+- **MetalRV64 C backend — `VMO_CMP_BINARY` wired** (`kernel/vm/metal_rv64_vm.h`): added the
+  `RV_VMO_CMP_BINARY` opcode (`0x0D`) and the `CMP_EQ`/`CMP_NEQ`/`CMP_LT`/`CMP_GT`/`CMP_LE`/`CMP_GE`
+  comparison-type constants, and declared `metal_rv64_vm_register_kernel_builtins()`. String, number,
+  and boolean comparisons now work end-to-end in Sage code compiled with `--riscv` (e.g. `if cmd == "help":`).
+- **SageVM compiler — `CALL` calling convention fixed** (`srvm_compiler.sage`): the callee was being
+  allocated into `x10` and then clobbered by the first-argument move before `CALL`, which made
+  `VMO_CALL` invoke a string (e.g. `run("help")`). The callee is now preserved in `t0` (`x5`) before
+  argument placement, so function calls execute correctly.
+
+---
+
 ## Known Limitations
 
 
