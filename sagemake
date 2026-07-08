@@ -4,6 +4,7 @@ set -euo pipefail
 ## sagemake - SageOS-RV build system
 ## Usage: ./sagemake <command> [options]
 ##
+
 ## Commands:
 ##   build           Compile boot, kernel blobs, RTOS, MetalVM; link OS image
 ##   clean           Remove all build artifacts
@@ -19,6 +20,7 @@ set -euo pipefail
 ##   setup-srvm      Copy SRVM Sage sources from SageVM repo into kernel/
 ##   setup-metalvm   Validate MetalVM headers in kernel/ (does NOT overwrite them)
 ##   setup-rtos      Clone rtos/SageRTOS (idempotent)
+##   mermaid-graphics Generate README.md Mermaid diagrams as PNGs (mobile-friendly graphics)
 ##   help            Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -213,7 +215,7 @@ compile_rtos() {
 ## compile_metalvm
 ## ---------------------------------------------------------------------------
 compile_metalvm() {
-    metal_impl_present || fail "MetalVM impl files not found in kernel/.\n  Expected: kernel/vm/metal_vm_impl.c and kernel/vm/metal_rv64_vm_impl.c"
+    metal_impl_present || fail "MetalVM impl files not found in kernel/.\n  Expected: kernel/vm/metal_vm_impl.c and/or kernel/vm/metal_rv64_vm_impl.c"
 
     METAL_OBJS=()
 
@@ -543,6 +545,42 @@ cmd_version() {
     $QEMU --version 2>/dev/null | head -1 || true
 }
 
+cmd_mermaid_graphics() {
+    info "Generating README.md Mermaid diagrams as PNGs (mobile-friendly graphics)..."
+    local svg_file="${SCRIPT_DIR}/assets/architecture.svg"
+    local png_file="${SCRIPT_DIR}/assets/architecture.png"
+    local cpp_file="${SCRIPT_DIR}/assets/compilation_flow.svg"
+    local cpp_png="${SCRIPT_DIR}/assets/compilation_flow.png"
+    local repo_file="${SCRIPT_DIR}/assets/repository_layout.svg"
+    local repo_png="${SCRIPT_DIR}/assets/repository_layout.png"
+
+    # Generate architecture diagram
+    if [ -f "${SCRIPT_DIR}/assets/architecture.mmd" ]; then
+        npx @mermaid-js/mermaid-cli -i "${SCRIPT_DIR}/assets/architecture.mmd" -o "${svg_file}" -e png 2>&1 \
+            && ok "Generated architecture.png" || fail "architecture.svg generation failed"
+    else
+        warn "architecture.mmd not found, skipping"
+    fi
+
+    # Generate compilation flow diagram
+    if [ -f "${SCRIPT_DIR}/assets/compilation_flow.mmd" ]; then
+        npx @mermaid-js/mermaid-cli -i "${SCRIPT_DIR}/assets/compilation_flow.mmd" -o "${cpp_file}" -e png 2>&1 \
+            && ok "Generated compilation_flow.png" || fail "compilation_flow.svg generation failed"
+    else
+        warn "compilation_flow.mmd not found, skipping"
+    fi
+
+    # Generate repository layout diagram
+    if [ -f "${SCRIPT_DIR}/assets/repository_layout.mmd" ]; then
+        npx @mermaid-js/mermaid-cli -i "${SCRIPT_DIR}/assets/repository_layout.mmd" -o "${repo_file}" -e png 2>&1 \
+            && ok "Generated repository_layout.png" || fail "repository_layout.svg generation failed"
+    else
+        warn "repository_layout.mmd not found, skipping"
+    fi
+
+    ok "Mermaid graphics generation complete. PNGs are ready for mobile display in README.md"
+}
+
 cmd_help() { sed -n '2,/^$/p' "$0" | sed 's/^## \?//'; }
 
 case "${1:-help}" in
@@ -561,6 +599,7 @@ case "${1:-help}" in
     setup-srvm)      cmd_setup_srvm ;;
     setup-metalvm)   cmd_setup_metalvm ;;
     setup-rtos)      cmd_setup_rtos ;;
+    mermaid-graphics) cmd_mermaid_graphics ;;
     help|--help|-h)  cmd_help ;;
     *)               echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac

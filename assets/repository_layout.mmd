@@ -1,0 +1,34 @@
+flowchart LR
+    Root["<b>SageOS-RV/</b>"]
+    
+    Boot["<b>boot/</b><br/><i>Bare-metal entry & linker</i>"]
+    Root --> Boot
+    
+    Root --> Kernel["<b>kernel/</b>"]
+    Root --> Drivers["<b>drivers/</b>"]
+    
+    Shell["<b>shell/</b><br/><i>Interactive prompt</i>"]
+    Root --> Shell
+    
+    Other["<b>sagemake, rootfs/, tests/</b><br/><i>Build tools & testing</i>"]
+    Root --> Other
+    
+    Kernel --> K1["<b>core/</b> — kmain, panic, errors"]
+    Kernel --> K2["<b>vm/</b> — MetalVM C adapter"]
+    Kernel --> K3["<b>srvm/</b> — SageVM interpreter"]
+    Kernel --> K4["<b>hw/</b> — C boot kernel, DTB, SBI"]
+    Kernel --> K5["<b>net/</b> — TCP/IP, DHCP, WiFi glue"]
+    Kernel --> K6["<b>rtos/, crypto/, ssh/</b>"]
+    Kernel --> K7["vfs, rootfs, dmesg, vmm"]
+    
+    Drivers --> D1["<b>fs/</b> — ext4, FAT32"]
+    Drivers --> D2["<b>bus/</b> — I2C, SPI"]
+    Drivers --> D3["<b>wifi/</b> — AIC8800, ESP-AT"]
+    Drivers --> D4["<b>gpio/, sys/, uart/</b>"]
+    
+    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
+    style Kernel fill:#0984e3,color:#fff
+    style Drivers fill:#00b894,color:#fff
+    style Boot fill:#6c5ce7,color:#fff
+    style Shell fill:#fdcb6e,color:#000
+    style Other fill:#636e72,color:#fff

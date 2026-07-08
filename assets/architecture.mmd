@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph KernelImage["SageOS-RV kernel image (sageos.elf)"]
+        direction TB
+        
+        subgraph SageVM["SageVM Runtime (optional, enabled by default)"]
+            direction TB
+            L3["<b>Layer 3: SRVM — Sage-level VM</b><br/>kernel/srvm/*.sage<br/><i>Compiled into SGRV bytecode via --riscv</i>"]
+            
+            L2["<b>Layer 2: MetalRV64VM — Bare-metal C adapter</b><br/>kernel/vm/metal_rv64_vm_impl.c<br/><i>Q32.32 fixed-point, no libc, no FPU<br/>RV64I + VMSYS (CALL, PRINT, CMP_BINARY)</i>"]
+            
+            L3 --> L2
+        end
+        
+        L1["<b>Layer 1: C kernel — Hardware abstraction</b><br/>kernel/hw/fallback_kernel.c, boot.S, dtb.c, vmm.c<br/><i>UART, PMM, VMM, SBI wrappers</i>"]
+        
+        Embeds["<b>Embedded sections:</b><br/>.sgvm_kernel — kmain.sgvm<br/>.sgvm_shell — shell.sgvm<br/>.rootfs — rootfs.bin (SRFS archive)"]
+        
+        SageVM --> L1
+        Embeds -.-> L1
+    end
+    
+    style KernelImage fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style SageVM fill:transparent,stroke:#666,stroke-width:1.5px
+    style L3 fill:#2d3436,color:#fff,stroke:#fff,stroke-width:1px
+    style L2 fill:#0984e3,color:#fff,stroke:#fff,stroke-width:1px
+    style L1 fill:#d63031,color:#fff,stroke:#fff,stroke-width:1px
+    style Embeds fill:#00b894,color:#fff,stroke:#fff,stroke-width:1px

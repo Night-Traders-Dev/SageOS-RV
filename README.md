@@ -14,35 +14,7 @@ Target hardware: LicheeRV Nano W (Sophgo SG2002 + AIC8800 WiFi 6). Development p
 
 SageOS-RV uses a layered architecture with optional SageVM runtime:
 
-```mermaid
-flowchart TB
-    subgraph KernelImage["SageOS-RV kernel image (sageos.elf)"]
-        direction TB
-        
-        subgraph SageVM["SageVM Runtime (optional, enabled by default)"]
-            direction TB
-            L3["<b>Layer 3: SRVM — Sage-level VM</b><br/>kernel/srvm/*.sage<br/><i>Compiled into SGRV bytecode via --riscv</i>"]
-            
-            L2["<b>Layer 2: MetalRV64VM — Bare-metal C adapter</b><br/>kernel/vm/metal_rv64_vm_impl.c<br/><i>Q32.32 fixed-point, no libc, no FPU<br/>RV64I + VMSYS (CALL, PRINT, CMP_BINARY)</i>"]
-            
-            L3 --> L2
-        end
-        
-        L1["<b>Layer 1: C kernel — Hardware abstraction</b><br/>kernel/hw/fallback_kernel.c, boot.S, dtb.c, vmm.c<br/><i>UART, PMM, VMM, SBI wrappers</i>"]
-        
-        Embeds["<b>Embedded sections:</b><br/>.sgvm_kernel — kmain.sgvm<br/>.sgvm_shell — shell.sgvm<br/>.rootfs — rootfs.bin (SRFS archive)"]
-        
-        SageVM --> L1
-        Embeds -.-> L1
-    end
-    
-    style KernelImage fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
-    style SageVM fill:transparent,stroke:#666,stroke-width:1.5px
-    style L3 fill:#2d3436,color:#fff,stroke:#fff,stroke-width:1px
-    style L2 fill:#0984e3,color:#fff,stroke:#fff,stroke-width:1px
-    style L1 fill:#d63031,color:#fff,stroke:#fff,stroke-width:1px
-    style Embeds fill:#00b894,color:#fff,stroke:#fff,stroke-width:1px
-```
+![Architecture Overview](assets/architecture.png)
 
 ### Two Operating Modes
 
@@ -53,30 +25,7 @@ flowchart TB
 
 ### Compilation Flow
 
-```mermaid
-flowchart TD
-    S1["shell/shell.sage"] --> C1{"sagevm compile --riscv<br/><i>(SageVM SRVM)</i>"}
-    S2["kernel/core/kmain.sage<br/>+ srvm_*.sage"] --> C1
-    
-    C1 --> B1["<b>.sgrv bytecode</b><br/>(32-bit RV64I instructions)"]
-    
-    B1 --> O1{"riscv64-linux-gnu-objcopy"}
-    
-    O1 --> S3["section <b>.sgvm_kernel</b><br/>section <b>.sgvm_shell</b>"]
-    
-    S3 --> L1{"riscv64-linux-gnu-ld"}
-    C2["<b>C kernel objects</b><br/>boot.o, kernel.o, etc."] --> L1
-    
-    L1 --> E1["<b>sageos.elf</b>"]
-    
-    E1 --> Q1["QEMU<br/>-cpu rv64<br/>-chardev stdio,mux=off"]
-    
-    style C1 fill:#6c5ce7,color:#fff
-    style O1 fill:#6c5ce7,color:#fff
-    style L1 fill:#6c5ce7,color:#fff
-    style E1 fill:#00b894,color:#fff
-    style Q1 fill:#d63031,color:#fff
-```
+![Compilation Flow](assets/compilation_flow.png)
 
 ---
 
@@ -161,42 +110,7 @@ SageVM enable: `SAGEVM_ENABLED=1 ./sagemake build`
 
 ## Repository Layout
 
-```mermaid
-flowchart LR
-    Root["<b>SageOS-RV/</b>"]
-    
-    Boot["<b>boot/</b><br/><i>Bare-metal entry & linker</i>"]
-    Root --> Boot
-    
-    Root --> Kernel["<b>kernel/</b>"]
-    Root --> Drivers["<b>drivers/</b>"]
-    
-    Shell["<b>shell/</b><br/><i>Interactive prompt</i>"]
-    Root --> Shell
-    
-    Other["<b>sagemake, rootfs/, tests/</b><br/><i>Build tools & testing</i>"]
-    Root --> Other
-
-    Kernel --> K1["<b>core/</b> — kmain, panic, errors"]
-    Kernel --> K2["<b>vm/</b> — MetalVM C adapter"]
-    Kernel --> K3["<b>srvm/</b> — SageVM interpreter"]
-    Kernel --> K4["<b>hw/</b> — C boot kernel, DTB, SBI"]
-    Kernel --> K5["<b>net/</b> — TCP/IP, DHCP, WiFi glue"]
-    Kernel --> K6["<b>rtos/, crypto/, ssh/</b>"]
-    Kernel --> K7["vfs, rootfs, dmesg, vmm"]
-
-    Drivers --> D1["<b>fs/</b> — ext4, FAT32"]
-    Drivers --> D2["<b>bus/</b> — I2C, SPI"]
-    Drivers --> D3["<b>wifi/</b> — AIC8800, ESP-AT"]
-    Drivers --> D4["<b>gpio/, sys/, uart/</b>"]
-
-    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
-    style Kernel fill:#0984e3,color:#fff
-    style Drivers fill:#00b894,color:#fff
-    style Boot fill:#6c5ce7,color:#fff
-    style Shell fill:#fdcb6e,color:#000
-    style Other fill:#636e72,color:#fff
-```
+![Repository Layout](assets/repository_layout.png)
 
 ---
 

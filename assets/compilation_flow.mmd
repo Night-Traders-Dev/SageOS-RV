@@ -1,0 +1,22 @@
+flowchart TD
+    S1["shell/shell.sage"] --> C1{"sagevm compile --riscv<br/><i>(SageVM SRVM)</i>"}
+    S2["kernel/core/kmain.sage<br/>+ srvm_*.sage"] --> C1
+    
+    C1 --> B1["<b>.sgrv bytecode</b><br/>(32-bit RV64I instructions)"]
+    
+    B1 --> O1{"riscv64-linux-gnu-objcopy"}
+    
+    O1 --> S3["section <b>.sgvm_kernel</b><br/>section <b>.sgvm_shell</b>"]
+    
+    S3 --> L1{"riscv64-linux-gnu-ld"}
+    C2["<b>C kernel objects</b><br/>boot.o, kernel.o, etc."] --> L1
+    
+    L1 --> E1["<b>sageos.elf</b>"]
+    
+    E1 --> Q1["QEMU<br/>-cpu rv64<br/>-chardev stdio,mux=off"]
+    
+    style C1 fill:#6c5ce7,color:#fff
+    style O1 fill:#6c5ce7,color:#fff
+    style L1 fill:#6c5ce7,color:#fff
+    style E1 fill:#00b894,color:#fff
+    style Q1 fill:#d63031,color:#fff
