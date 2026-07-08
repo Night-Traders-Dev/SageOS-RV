@@ -29,13 +29,21 @@ source "${SCRIPT_DIR}/config/build.conf"
 ## SageLang compiler / VM
 SAGE="${SAGE:-}"
 if [ -z "$SAGE" ]; then
+    # Try system binaries in PATH first
+    for candidate in sage sage3; do
+        if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+            SAGE="$candidate"; break
+        fi
+    done
+fi
+if [ -z "$SAGE" ]; then
+    # Fallback to internal development versions
     for candidate in \
         /home/kraken/Devel/sagelang/core/build/sage \
         /home/kraken/Devel/sagelang/core/sage \
         /home/kraken/Devel/SageLang/core/build/sage \
-        /home/kraken/Devel/SageLang/core/sage \
-        sage sage3; do
-        if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+        /home/kraken/Devel/SageLang/core/sage; do
+        if [ -x "$candidate" ]; then
             SAGE="$candidate"; break
         fi
     done
@@ -44,14 +52,20 @@ SAGE="${SAGE:-sage}"
 
 SAGEVM="${SAGEVM:-}"
 if [ -z "$SAGEVM" ]; then
+    # Try system binaries in PATH first
+    if command -v sagevm >/dev/null 2>&1; then
+        SAGEVM="sagevm"
+    fi
+fi
+if [ -z "$SAGEVM" ]; then
+    # Fallback to internal development versions
     for candidate in \
-        sagevm \
         /home/kraken/Devel/SageVM/sagevm \
         /home/kraken/Devel/sagelang/sagevm \
         /home/kraken/Devel/SageLang/sagevm \
-        "${SCRIPT_DIR}/../sagelang/sagevm" \
-        "${SCRIPT_DIR}/../SageVM/sagevm"; do
-        if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+        "${SCRIPT_DIR}/../SageVM/sagevm" \
+        "${SCRIPT_DIR}/../SageLang/sagevm"; do
+        if [ -x "$candidate" ]; then
             SAGEVM="$candidate"; break
         fi
     done
