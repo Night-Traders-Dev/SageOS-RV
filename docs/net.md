@@ -77,7 +77,35 @@ req = http_request("GET", "example.com", "/")
 | `http.sage` | 70 | RFC 7230 | GET/POST, header parsing, status codes |
 | `tls.sage` | 60 | RFC 8446 | ClientHello, cipher suite negotiation, AES-128-GCM |
 | `wifi_net.sage` | 40 | — | WiFi→Net bridge, scan→connect→DHCP→IP |
-| `stack.sage` | 120 | — | Full TCP/IP stack integration |
+| `stack.sage` | 120 | — | Full TCP/IP stack integration (legacy) |
+| `tcp_stack.sage` | 595 | RFC 9293 | Transport-agnostic TCP/IP stack; Ethernet→ARP→IPv4→TCP socket API |
+
+## Transport Architecture
+
+The `tcp_stack.sage` (used by SSH command) is transport-agnostic — it does not depend on any specific NIC:
+
+```
+net_tx(frame)         →  "loopback": push to software queue
+                            "kernel":  C builtin netdev_tx()
+net_rx() → frame|nil  →  "loopback": pop from software queue
+                            "kernel":  C builtin netdev_rx()
+```
+
+| Backend | Selector | Purpose |
+|---|---|---|
+| **loopback** | `let net_backend = "loopback"` | Host-side testing — frames queued in Sage arrays |
+| **kernel** | `let net_backend = "kernel"` | VM-to-NIC — delegates to C `netdev_tx`/`netdev_rx` builtins |
+
+### QEMU Virtio-Net Backend
+
+When running under QEMU `virt` with `net_backend = "kernel"`:
+
+1. **MetalRV64 VM** registers `netdev_tx`, `netdev_rx`, `netdev_now` builtins (`metal_rv64_vm_impl.c` lines 996-1019)
+2. **Network config** (`net_our_ip`, `net_our_mac`) is set in the command's global dict before execution (lines 949-963)
+3. **TX path**: Sage `net_tx(frame)` → C `netdev_tx()` copies to a global TX buffer `g_net_tx_buf[]`
+4. **RX path**: Sage `net_rx()` → C `netdev_rx()` returns `nil` (stub — awaiting full virtio-net driver)
+
+The pure-Sage virtio-net driver (`kernel/drivers/net/virtio_net.sage`) provides virtqueue ring management for frame submission. See [docs/virtio-net.md](virtio-net.md).
 
 ## TCP State Machine
 

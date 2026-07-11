@@ -13,13 +13,19 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Freestanding libc replacements
+// Network transport hooks (wired to a real NIC driver by the kernel)
 // ---------------------------------------------------------------------------
-static void rv_memset(void *dst, int val, unsigned long n) {
-    unsigned char *p = (unsigned char *)dst;
-    while (n--) *p++ = (unsigned char)val;
-}
+static char   g_run_args[256];          /* arguments for the running command */
+#define NET_MAX_FRAME 2048
+static uint8_t g_net_tx_buf[NET_MAX_FRAME];
+static int     g_net_tx_len = 0;
 
+/* QEMU virtio-net driver interface */
+extern void (*netdev_qemu_tx)(const uint8_t *buf, int len);
+extern const uint8_t *(*netdev_qemu_rx)(int *len);
+extern uint64_t (*netdev_qemu_now)(void);
+
+// ---------------------------------------------------------------------------
 static void rv_memcpy(void *dst, const void *src, unsigned long n) {
     unsigned char *d = (unsigned char *)dst;
     const unsigned char *s = (const unsigned char *)src;
@@ -37,9 +43,13 @@ static int rv_strcmp(const char *s1, const char *s2) {
     return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }
 
+static void rv_memset(void *dst, int c, unsigned long n) {
+    unsigned char *d = (unsigned char *)dst;
+    while (n--) *d++ = (unsigned char)c;
+}
+
 // ---------------------------------------------------------------------------
 // Q32.32 fixed-point helpers
-// ---------------------------------------------------------------------------
 #define FP_SHIFT   32
 #define FP_ONE     ((int64_t)1 << FP_SHIFT)
 #define FP_HALF    (FP_ONE >> 1)
@@ -360,6 +370,11 @@ void metal_rv64_vm_register_kernel_builtins(MetalRV64VM *vm) {
     metal_rv64_vm_register_builtin(vm, "rtos_tick");
     metal_rv64_vm_register_builtin(vm, "SRVM");
     metal_rv64_vm_register_builtin(vm, "aic8800_load_fw");
+    /* Network transport hooks (wired to a NIC driver by the kernel) */
+    metal_rv64_vm_register_builtin(vm, "netdev_tx");
+    metal_rv64_vm_register_builtin(vm, "netdev_rx");
+    metal_rv64_vm_register_builtin(vm, "netdev_now");
+    metal_rv64_vm_register_builtin(vm, "argv");
 }
 
 RV64Instruction rv64_decode(unsigned int raw) {
@@ -875,8 +890,20 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             MetalValue bin = vm->x[10];
                             if (bin.type == MV_STR && vm->write_char) {
                                 const char *name = rv_string_get(vm, bin.as.str_idx);
+                                /* Split "cmd args..." into a command name + arguments. */
+                                char cmd[128];
+                                int ci = 0, ai = 0, sp = 0;
+                                for (int k = 0; name[k] && ci < 127; k++) {
+                                    if (!sp && (name[k] == ' ' || name[k] == '\t')) { sp = 1; continue; }
+                                    if (!sp) cmd[ci++] = name[k];
+                                    else if (ai < 255) g_run_args[ai++] = name[k];
+                                }
+                                cmd[ci] = '\0';
+                                g_run_args[ai] = '\0';
                                 rv_print_str(vm, "RUN BUILTIN CALLED WITH NAME: ");
-                                rv_print_str(vm, name);
+                                rv_print_str(vm, cmd);
+                                rv_print_str(vm, " args: ");
+                                rv_print_str(vm, g_run_args);
                                 rv_print_str(vm, "\n");
                                 extern uint8_t _binary_rootfs_bin_start[];
                                 uint8_t *ptr = _binary_rootfs_bin_start;
@@ -890,7 +917,7 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                     char target[128];
                                     int len = 0;
                                     target[len++] = 'b'; target[len++] = 'i'; target[len++] = 'n'; target[len++] = '/';
-                                    const char *nptr = name;
+                                    const char *nptr = cmd;
                                     while (*nptr && len < 120) target[len++] = *nptr++;
                                     target[len++] = '.'; target[len++] = 's'; target[len++] = 'g'; target[len++] = 'v'; target[len++] = 'm';
                                     target[len] = '\0';
@@ -914,7 +941,28 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                             sub_vm.write_char = vm->write_char;
                                             metal_rv64_vm_register_kernel_builtins(&sub_vm);
                                             metal_rv64_vm_load_binary(&sub_vm, ptr + pos, fsize);
-                                            
+
+                                            /* Provide network configuration to the command.
+                                               The TCP stack reads these from the command's
+                                               global dict; they must be set here (not via a
+                                               `let` in the script) so they are not clobbered. */
+                                            {
+                                                int kstr = rv_string_intern(&sub_vm, "kernel", 6);
+                                                rv_dict_set(&sub_vm, sub_vm.global_dict_idx,
+                                                    rv_string_intern(&sub_vm, "net_backend", 11),
+                                                    (MetalValue){MV_STR, {.str_idx = kstr}});
+                                                rv_dict_set(&sub_vm, sub_vm.global_dict_idx,
+                                                    rv_string_intern(&sub_vm, "net_our_ip", 10),
+                                                    mv_num((int64_t)0x0A00020F));
+                                                int marr = rv_array_new(&sub_vm);
+                                                static const uint8_t mbytes[6] = {0x52,0x55,0x0A,0x00,0x00,0x01};
+                                                for (int mi = 0; mi < 6; mi++)
+                                                    rv_array_push(&sub_vm, marr, mv_num(mbytes[mi]));
+                                                rv_dict_set(&sub_vm, sub_vm.global_dict_idx,
+                                                    rv_string_intern(&sub_vm, "net_our_mac", 11),
+                                                    (MetalValue){MV_ARR, {.arr_idx = marr}});
+                                            }
+
                                             // Handle multi-chunk execution if any
                                             for (int c = 0; c < sub_vm.chunk_count; c++) {
                                                 sub_vm.current_chunk_idx = c;
@@ -937,8 +985,36 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                                 }
                                 if (!found) {
                                     rv_print_str(vm, "RUN: TARGET NOT FOUND. Printing error...\n");
-                                    rv_print_str(vm, name); rv_print_str(vm, ": command not found\n");
+                                    rv_print_str(vm, cmd); rv_print_str(vm, ": command not found\n");
                                 }
+                            }
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "argv") == 0) {
+                            /* Return the arguments passed to the running command. */
+                            int idx = rv_string_intern(vm, g_run_args, (int)rv_strlen(g_run_args));
+                            vm->x[10] = (MetalValue){MV_STR, {.str_idx = idx}};
+                        } else if (rv_strcmp(b_name, "netdev_now") == 0) {
+                            /* Monotonic clock in ms (QEMU virt: mtime @ 0x0200BFF8). */
+                            uint64_t t = *(volatile uint64_t *)(uintptr_t)0x0200BFF8UL;
+                            vm->x[10] = mv_num((int64_t)(t / 10000));
+                        } else if (rv_strcmp(b_name, "netdev_rx") == 0) {
+                            /* Return a received frame, or nil if none is pending.
+                               A real NIC driver would refill this from its RX ring. */
+                            vm->x[10] = mv_nil();
+                        } else if (rv_strcmp(b_name, "netdev_tx") == 0) {
+                            /* Queue a raw Ethernet frame for transmission.
+                               A real NIC driver would DMA this out to the wire. */
+                            MetalValue f = vm->x[10];
+                            g_net_tx_len = 0;
+                            if (f.type == MV_ARR) {
+                                MetalArray *a = &vm->arrays[f.as.arr_idx];
+                                int n = a->count < NET_MAX_FRAME ? a->count : NET_MAX_FRAME;
+                                for (int i = 0; i < n; i++) {
+                                    MetalValue v = a->elems[i];
+                                    int b = (v.type == MV_NUM) ? (int)fp_to_int(v.as.number) : 0;
+                                    g_net_tx_buf[i] = (uint8_t)(b & 0xFF);
+                                }
+                                g_net_tx_len = n;
                             }
                             vm->x[10] = mv_nil();
                         } else if (rv_strcmp(b_name, "shell_input") == 0) {

@@ -167,10 +167,13 @@ Built-in commands via `shell_exec()` builtin (dispatched in C for reliable strin
 | `lcd.sage` | Display/VOU | SG2002 VOU, MIPI DSI, and Panel Init |
 | `dwc2.sage` | USB OTG | Synopsys DWC2 device mode, EP0 setup |
 | `wifi_aic8800.sage` | AIC8800D WiFi 6 | SDIO transport, firmware load, scan/connect |
+| `virtio_net.sage` | QEMU virtio-net-pci | Virtqueue ring management, TX/RX frame submission |
 
 ### Networking (Pure Sage)
 
-- **TCP/IP stack** — Ethernet, ARP, IPv4, ICMP, UDP, TCP
+- **TCP/IP stack** — Ethernet, ARP, IPv4, ICMP, UDP, TCP (RFC 9293)
+- **Transport-agnostic** — two backends: `"loopback"` (software queue for testing) and `"kernel"` (C VM builtins → real NIC)
+- **QEMU virtio-net** — pure-Sage virtio-net driver + MetalRV64 `netdev_tx`/`netdev_rx`/`netdev_now` builtins
 - **DHCP client** — DISCOVER → OFFER → REQUEST → ACK
 - **WiFi integration** — connect + DHCP + interface config in one call
 - **SSH client** — SSH-2.0 protocol (RFC 4251-4254): KEX, auth, channels, command exec
@@ -193,6 +196,16 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ## Recent Changes
 
+- **SSH wired to real TCP transport** (`tools/bin/ssh.sage` → `rootfs/bin/ssh.sgvm`): SSH
+  command now links to `kernel/net/tcp_stack.sage` via `tools/gen_ssh.sh`; the TCP stack is
+  transport-agnostic with backends for `"loopback"` (software queue for tests) and `"kernel"`
+  (C `netdev_tx`/`netdev_rx` builtins). All 37 SSH/crypto tests pass.
+- **QEMU virtio-net driver skeleton** (`kernel/drivers/net/virtio_net.sage`): pure-Sage
+  virtio-net driver with virtqueue ring management (descriptor table, avail/used rings),
+  TX/RX submit functions, and notify/poll logic.
+- **MetalRV64 netdev builtins** (`kernel/vm/metal_rv64_vm_impl.c`): `netdev_tx` queues frames,
+  `netdev_rx` returns nil (stub), `netdev_now` reads QEMU `mtime` clock. Network config
+  (`net_backend`, `net_our_ip`, `net_our_mac`) injected into command globals before execution.
 - **MetalRV64 C backend — `VMO_CMP_BINARY` wired** (`kernel/vm/metal_rv64_vm.h`): added the
   `RV_VMO_CMP_BINARY` opcode (`0x0D`) and the `CMP_EQ`/`CMP_NEQ`/`CMP_LT`/`CMP_GT`/`CMP_LE`/`CMP_GE`
   comparison-type constants, and declared `metal_rv64_vm_register_kernel_builtins()`. String, number,
@@ -221,7 +234,8 @@ Run the full testing pipeline:
 
 ## Known Limitations
 
-
+- **Virtio-net RX**: `netdev_rx` is a stub (returns `nil`) — no real frame reception yet; full virtio-net PCI driver still needed
+- **Curve25519/AES-CTR**: SSH key exchange and encryption depend on SageVM crypto builtins not yet available under the embedded RV64 VM
 - **Hardware testing**: LicheeRV Nano W not yet tested on physical hardware.
 
 ---

@@ -19,7 +19,12 @@ SageOS-RV includes a pure-Sage SSH-2.0 client for remote cluster management.
 │  sha256.sage  hmac.sage                │
 │  FIPS 180-4    RFC 2104               │
 ├─────────────────────────────────────────┤
-│  TCP/IP stack (kernel/net/stack.sage)   │
+│  TCP/IP stack (kernel/net/tcp_stack.sage)│
+│  socket API: tcp_socket, tcp_connect    │
+├─────────────────────────────────────────┤
+│  Transport Backend (net_tx/net_rx)      │
+│  "loopback" — software queue for tests  │
+│  "kernel"   — C netdev builtins → NIC  │
 └─────────────────────────────────────────┘
 ```
 
@@ -63,6 +68,18 @@ ssh_client.ssh_auth_password("sageos", "password")
 ssh_client.ssh_exec("free -m")
 ssh_client.ssh_close()
 ```
+
+### Build Pipeline
+
+The SSH command binary is assembled from two sources:
+
+```bash
+cat kernel/net/tcp_stack.sage tools/bin/ssh_main.sage > tools/bin/ssh.sage
+sagevm compile tools/bin/ssh.sage rootfs/bin/ssh.sgvm --riscv
+```
+
+- `tools/gen_ssh.sh` — concatenates TCP stack + SSH main into `tools/bin/ssh.sage`
+- `sagemake build` — compiles the generated source to `rootfs/bin/ssh.sgvm` and embeds it in the kernel binary
 
 ---
 
@@ -154,5 +171,6 @@ python3 tests/ssh_test.py
 
 - **Curve25519**: Key exchange math requires big-integer GF(2^255-19) arithmetic — needs SageVM crypto builtin or host library
 - **AES-CTR**: AES block cipher not yet implemented in pure Sage — needs builtin
-- **Real SSH connectivity**: Tested against protocol spec; hardware integration pending WiFi + TCP stack completion
+- **Real SSH connectivity**: Tested against protocol spec; requires QEMU virtio-net (or physical NIC) + C-level netdev_tx/rx for live network I/O
 - **Password auth only**: Public key authentication requires ed25519 signature verification
+- **Curve25519/AES-CTR**: Depend on SageVM crypto builtins or host library — not yet available in-pure-Sage under the embedded RV64 VM
