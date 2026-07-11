@@ -38,3 +38,12 @@ The driver initializes the SDIO bus, verifies the Vendor ID and Device ID, and t
 This driver initializes the graphics pipeline for the LicheeRV Nano's default MIPI LCD panel (e.g. ST7701S).
 It allocates a contiguous framebuffer in the DDR memory pool and configures the VOU DMA to scan out from that buffer.
 It then brings up the MIPI D-PHY, configures the DSI MAC for High-Speed (HS) video transmission, and finally sends the manufacturer-specific DCS initialization commands over the DSI link to wake up the panel. Basic framebuffer manipulation functions (e.g., `lcd_draw_pixel`, `lcd_clear`) are provided for rendering.
+
+## USB OTG (Synopsys DWC2)
+
+*   **File:** `drivers/usb/dwc2.sage`
+*   **Target:** Synopsys DesignWare Core (DWC2) USB 2.0 OTG Controller
+*   **Base Address (SG2002):** `0x04340000`
+
+This driver initializes the USB controller in Device Mode, allowing the LicheeRV Nano W to enumerate as a peripheral when plugged into a host PC.
+It handles soft-resetting the core, enabling global interrupts, and configuring Endpoint 0 (EP0) for Control Transfers. An interrupt polling routine (`dwc2_poll`) is provided to handle USB Reset and Enumeration Done events from the host, correctly reading the negotiated link speed and re-arming EP0 to receive the subsequent SETUP packets (like Get Descriptor).
