@@ -68,10 +68,22 @@ The LicheeRV config selects:
 - **PLIC**: `0x0C000000` (same as QEMU virt)
 - **Drivers**: clkgen, PMIC (AXP15060 via I2C), onboard AIC8800 WiFi
 
-Flash to SD card:
+Create a bootable SD card (requires `fip.bin` from vendor SDK at `/home/kraken/Devel/buildroot/LicheeSG-Nano-Build/fsbl/build/sg2002_licheervnano_sd/fip.bin`):
 ```bash
-sudo dd if=images/sageos.bin of=/dev/mmcblk0 bs=1M seek=2
+sudo ./tools/make-sd-image.sh /dev/sdb
 ```
+
+Or create an image file and flash separately:
+```bash
+./tools/make-sd-image.sh images/sageos-sd.img
+sudo dd if=images/sageos-sd.img of=/dev/sdb bs=1M status=progress
+```
+
+The SD card layout:
+- **MBR** at sector 0
+- **Partition 1** (FAT32, 64 MB): `fip.bin` (BootROM → BL2 → OpenSBI → kernel), `boot.scr` (u-boot fallback), `sageos.bin`, `sg2002-licheerv-nano.dtb`
+
+Boot chain: SG2002 BootROM → FAT `fip.bin` → BL2 → OpenSBI (S-mode) → `boot.S` → `sage_kernel_main()`
 
 ### Expected Boot Output
 

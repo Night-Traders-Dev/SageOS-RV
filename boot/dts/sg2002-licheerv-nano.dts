@@ -16,7 +16,7 @@
 
     memory@80000000 {
         device_type = "memory";
-        reg = <0x0 0x80000000 0x10000000>;  // 256 MB at 0x80000000
+        reg = <0x0 0x80000000 0x10000000>;
     };
 
     chosen {
@@ -28,20 +28,22 @@
         #size-cells = <0>;
         timebase-frequency = <25000000>;
 
-        cpu@0 {
+        cpu0: cpu@0 {
             device_type = "cpu";
             reg = <0>;
             status = "okay";
             compatible = "thead,c906", "riscv";
             riscv,isa = "rv64imafdc";
             mmu-type = "riscv,sv39";
-            clock-frequency = <1000000000>;  // 1 GHz
+            clock-frequency = <1000000000>;
+            #interrupt-cells = <1>;
+            interrupt-controller;
         };
     };
 
     clint@2000000 {
         compatible = "riscv,aclint-mtimer";
-        reg = <0x0 0x02000000 0x0 0x00010000>;  // ACLINT MTIMER
+        reg = <0x0 0x02000000 0x10000>;
         interrupts-extended = <&cpu0 3>, <&cpu0 7>;
     };
 
@@ -50,10 +52,11 @@
         #size-cells = <1>;
         compatible = "simple-bus";
         ranges;
+        interrupt-parent = <&plic>;
 
         uart0: serial@4140000 {
             compatible = "ns16550a";
-            reg = <0x0 0x04140000 0x0 0x100>;
+            reg = <0x0 0x04140000 0x100>;
             interrupts = <10>;
             clock-frequency = <25000000>;
             current-speed = <115200>;
@@ -62,7 +65,7 @@
 
         plic: interrupt-controller@c000000 {
             compatible = "riscv,plic0";
-            reg = <0x0 0x0C000000 0x0 0x800000>;
+            reg = <0x0 0x0C000000 0x800000>;
             #interrupt-cells = <1>;
             interrupts-extended = <&cpu0 11>, <&cpu0 9>;
             interrupt-controller;
@@ -72,7 +75,7 @@
 
         gpio0: gpio@3020000 {
             compatible = "snps,dw-apb-gpio";
-            reg = <0x0 0x03020000 0x0 0x1000>;
+            reg = <0x0 0x03020000 0x1000>;
             #gpio-cells = <2>;
             ngpios = <32>;
             status = "okay";
@@ -80,7 +83,7 @@
 
         gpio1: gpio@3021000 {
             compatible = "snps,dw-apb-gpio";
-            reg = <0x0 0x03021000 0x0 0x1000>;
+            reg = <0x0 0x03021000 0x1000>;
             #gpio-cells = <2>;
             ngpios = <32>;
             status = "okay";
@@ -88,7 +91,7 @@
 
         i2c0: i2c@4000000 {
             compatible = "snps,designware-i2c";
-            reg = <0x0 0x04000000 0x0 0x1000>;
+            reg = <0x0 0x04000000 0x1000>;
             interrupts = <22>;
             clock-frequency = <400000>;
             status = "okay";
@@ -96,21 +99,21 @@
 
         spi0: spi@4180000 {
             compatible = "snps,dw-apb-ssi";
-            reg = <0x0 0x04180000 0x0 0x1000>;
+            reg = <0x0 0x04180000 0x1000>;
             interrupts = <16>;
             status = "disabled";
         };
 
         dwc2_usb: usb@4340000 {
             compatible = "snps,dwc2";
-            reg = <0x0 0x04340000 0x0 0x10000>;
+            reg = <0x0 0x04340000 0x10000>;
             interrupts = <31>;
             status = "okay";
         };
 
         dw_mmc0: mmc@4310000 {
             compatible = "snps,dw-mshc";
-            reg = <0x0 0x04310000 0x0 0x1000>;
+            reg = <0x0 0x04310000 0x1000>;
             interrupts = <29>;
             bus-width = <4>;
             status = "okay";
@@ -118,7 +121,7 @@
 
         dw_mmc1: mmc@4320000 {
             compatible = "snps,dw-mshc";
-            reg = <0x0 0x04320000 0x0 0x1000>;
+            reg = <0x0 0x04320000 0x1000>;
             interrupts = <30>;
             bus-width = <4>;
             status = "okay";
@@ -126,12 +129,12 @@
 
         syscon: syscon@3001000 {
             compatible = "sophgo,sg2002-syscon", "syscon";
-            reg = <0x0 0x03001000 0x0 0x1000>;
+            reg = <0x0 0x03001000 0x1000>;
         };
 
         wdt: watchdog@3010000 {
             compatible = "snps,dw-wdt";
-            reg = <0x0 0x03010000 0x0 0x1000>;
+            reg = <0x0 0x03010000 0x1000>;
             interrupts = <0>;
             status = "okay";
         };
