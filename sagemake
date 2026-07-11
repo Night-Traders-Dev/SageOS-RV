@@ -113,8 +113,7 @@ KERNEL_CORE="${SCRIPT_DIR}/kernel/core"
 
 ## Bare-metal compile flags
 BM_CFLAGS="${BM_ARCH} -nostdlib -ffreestanding -O2"
-BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_TIMER_FREQ=${TIMER_FREQ}"
-
+BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_TIMER_FREQ=${TIMER_FREQ} ${BM_EXTRA_DEFS:-}"
 ## SageVM optional layer
 if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
     BM_DEFS="$BM_DEFS -DCONFIG_SAGEVM"
@@ -373,7 +372,7 @@ cmd_build() {
 
     ## 1. Boot assembly
     info "Compiling RISC-V boot assembly..."
-    $CC $BM_CFLAGS \
+    $CC $BM_CFLAGS $BM_DEFS \
         -I"${SCRIPT_DIR}/boot/arch/rv64" \
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
         -o "${BUILD_DIR}/boot.o" || fail "Boot assembly failed"
