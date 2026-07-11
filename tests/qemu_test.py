@@ -47,21 +47,30 @@ def run_qemu(mode='c-only'):
     )
     return proc
 
+import fcntl
+def set_nonblocking(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
 def expect(proc, pattern, timeout=30):
-    """Wait for pattern in QEMU output"""
     start = time.time()
     buf = ''
+    set_nonblocking(proc.stdout.fileno())
     while time.time() - start < timeout:
-        line = ''
+        if proc.poll() is not None: break
         try:
-            line = proc.stdout.readline().decode(errors='replace')
-        except:
+            chunk = os.read(proc.stdout.fileno(), 1024).decode(errors='replace')
+            if not chunk:
+                time.sleep(0.1)
+                continue
+            buf += chunk
+            if pattern in buf:
+                return buf
+        except BlockingIOError:
+            time.sleep(0.1)
+            continue
+        except Exception:
             pass
-        if not line and proc.poll() is not None:
-            break
-        buf += line
-        if pattern in line:
-            return buf
     return buf
 
 # =====================================================================
@@ -82,34 +91,13 @@ proc = subprocess.Popen(
 )
 
 # Wait for prompt
-out = ''
-for _ in range(200):  # ~20 seconds
-    if proc.poll() is not None: break
-    try:
-        line = proc.stdout.readline().decode(errors='replace')
-    except:
-        time.sleep(0.1)
-        continue
-    if not line: break
-    out += line
-    if 'sage#' in line:
-        break
-
+out = expect(proc, 'sage#', timeout=20)
 T("Kernel boots to prompt", 'sage#' in out)
 
 # Send help command
 proc.stdin.write(b'help\n')
 proc.stdin.flush()
-time.sleep(1)
-out2 = ''
-try:
-    while True:
-        line = proc.stdout.readline().decode(errors='replace')
-        if not line: break
-        out2 += line
-except:
-    pass
-
+out2 = expect(proc, 'Commands', timeout=5)
 T("C-only: prompt appears", 'sage#' in out2 or 'sage#' in out)
 T("C-only: help responds", 'Commands' in out2 or 'Commands' in out)
 
@@ -138,19 +126,7 @@ proc2 = subprocess.Popen(
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
 )
 
-out3 = ''
-for _ in range(200):
-    if proc2.poll() is not None: break
-    try:
-        line = proc2.stdout.readline().decode(errors='replace')
-    except:
-        time.sleep(0.1)
-        continue
-    if not line: break
-    out3 += line
-    if 'sage#' in line:
-        break
-
+out3 = expect(proc2, 'sage#', timeout=20)
 T("SageVM boots to prompt", 'sage#' in out3)
 
 proc2.stdin.write(b'help\n')

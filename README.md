@@ -204,6 +204,21 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ---
 
+## Testing
+
+The complete test suite validates both SageVM bytecode constraints, filesystem bounds, multithreading logic, and core driver bindings via QEMU PTY emulation.
+
+Run the full testing pipeline:
+```bash
+./tests/run_all.sh
+```
+
+### Coverage
+- **QEMU Interactive Emulation**: Validates the shell prompt via `shell_test.sh`
+- **Boot Matrix**: Boots through both the internal Python `qemu_test.py` instances (C-Only mode and SageVM mode).
+- **Filesystem & Subsystems**: Triggers testing pipelines recursively for `SageFS` and `SageSMP`.
+- **Driver Validations**: Evaluates the driver definitions and mapping spaces through `wifi_tests.sage` and `driver_tests.sage`.
+
 ## Known Limitations
 
 
