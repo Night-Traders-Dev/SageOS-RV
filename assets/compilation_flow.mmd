@@ -1,22 +1,89 @@
 flowchart TD
-    S1["shell/shell.sage"] --> C1{"sagevm compile --riscv<br/><i>(SageVM SRVM)</i>"}
-    S2["kernel/core/kmain.sage<br/>+ srvm_*.sage"] --> C1
+    subgraph Sources["Source Files"]
+        K1["kernel/core/kmain.sage"]
+        K2["kernel/srvm/srvm_*.sage"]
+        SH["shell/shell.sage"]
+        T["tools/bin/*.sage<br/>(45 commands)"]
+        SSH["tools/gen_ssh.sh<br/>→ tcp_stack + ssh_main<br/>= ssh.sage"]
+        C1["boot/arch/rv64/boot.S"]
+        C2["kernel/hw/*.c"]
+        C3["kernel/vm/metal_rv64_vm_impl.c"]
+    end
+
+    subgraph Config["Build Configuration"]
+        BC["config/build.conf"]
+        BQ["config/boards/qemu-virt.conf"]
+        BL["config/boards/licheerv-nano.conf"]
+    end
+
+    subgraph Compile["Compilation Pipeline"]
+        SC1{"sagevm compile --riscv"}
+        SC2{"sagevm compile --riscv"}
+        SC3{"sagevm compile --riscv"}
+        BT["tools/build_tools.sh<br/>(iterates tools/bin/*.sage)"]
+        AS{"riscv64-linux-gnu-gcc<br/>-nostdlib -ffreestanding"}
+        OBJ{"riscv64-linux-gnu-objcopy"}
+        LD{"riscv64-linux-gnu-ld<br/>-T boot/arch/rv64/linker.ld"}
+    end
+
+    subgraph Artifacts["Build Artifacts"]
+        SK["kmain.sgvm"]
+        SS["shell.sgvm"]
+        SG["rootfs/bin/*.sgvm<br/>(45 binaries incl. ssh)"]
+        CO["boot.o, kernel.o, metal_vm.o, …"]
+        SBIN["<b>sageos.elf</b>"]
+        OBIN["<b>sageos.bin</b>"]
+        RF["rootfs.bin"]
+    end
+
+    subgraph QEMU["QEMU Run"]
+        Q["qemu-system-riscv64<br/>-machine virt<br/>-bios opensbi<br/>-kernel sageos.bin"]
+    end
+
+    K1 --> SC1
+    K2 --> SC1
+    SH --> SC2
+    T --> BT
+    SSH --> BT
+    SC1 --> SK
+    SC2 --> SS
+    BT --> SG
+    C1 --> AS
+    C2 --> AS
+    C3 --> AS
+    AS --> CO
+    SK --> OBJ
+    SS --> OBJ
+    OBJ --> LD
+    CO --> LD
+    LD --> SBIN
+    SBIN --> OBIN
+    SG --> RF
+    RF --> OBIN
     
-    C1 --> B1["<b>.sgrv bytecode</b><br/>(32-bit RV64I instructions)"]
-    
-    B1 --> O1{"riscv64-linux-gnu-objcopy"}
-    
-    O1 --> S3["section <b>.sgvm_kernel</b><br/>section <b>.sgvm_shell</b>"]
-    
-    S3 --> L1{"riscv64-linux-gnu-ld"}
-    C2["<b>C kernel objects</b><br/>boot.o, kernel.o, etc."] --> L1
-    
-    L1 --> E1["<b>sageos.elf</b>"]
-    
-    E1 --> Q1["QEMU<br/>-cpu rv64<br/>-chardev stdio,mux=off"]
-    
-    style C1 fill:#6c5ce7,color:#fff
-    style O1 fill:#6c5ce7,color:#fff
-    style L1 fill:#6c5ce7,color:#fff
-    style E1 fill:#00b894,color:#fff
-    style Q1 fill:#d63031,color:#fff
+    BC --> LD
+    BQ --> Q
+    BL --> Q
+
+    OBIN --> Q
+
+    style Sources fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style Config fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style Compile fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style Artifacts fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style QEMU fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style SC1 fill:#6c5ce7,color:#fff
+    style SC2 fill:#6c5ce7,color:#fff
+    style SC3 fill:#6c5ce7,color:#fff
+    style BT fill:#6c5ce7,color:#fff
+    style AS fill:#6c5ce7,color:#fff
+    style OBJ fill:#6c5ce7,color:#fff
+    style LD fill:#6c5ce7,color:#fff
+    style SBIN fill:#00b894,color:#fff
+    style OBIN fill:#00b894,color:#fff
+    style SK fill:#0984e3,color:#fff
+    style SS fill:#0984e3,color:#fff
+    style SG fill:#0984e3,color:#fff
+    style CO fill:#636e72,color:#fff
+    style RF fill:#00b894,color:#fff
+    style Q fill:#d63031,color:#fff

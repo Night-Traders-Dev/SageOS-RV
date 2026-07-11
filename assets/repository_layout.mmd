@@ -1,37 +1,105 @@
-flowchart LR
+flowchart TB
     Root["<b>SageOS-RV/</b>"]
-    
-    Boot["<b>boot/</b><br/><i>Bare-metal entry & linker</i>"]
-    Root --> Boot
-    
-    Root --> Bootloader["<b>bootloader/</b><br/><i>SageBoot Submodule</i>"]
-    Root --> Kernel["<b>kernel/</b>"]
-    Root --> Drivers["<b>drivers/</b>"]
-    Root --> FS["<b>fs/sagefs/</b><br/><i>SageFS Submodule</i>"]
-    Root --> RTOS["<b>rtos/SageRTOS/</b><br/><i>SageRTOS Submodule</i>"]
-    
-    Shell["<b>shell/</b><br/><i>Interactive prompt</i>"]
-    Root --> Shell
-    
-    Other["<b>sagemake, rootfs/, tests/</b><br/><i>Build tools & testing</i>"]
-    Root --> Other
-    
-    Kernel --> K1["<b>core/</b> — kmain, panic, errors"]
-    Kernel --> K2["<b>vm/</b> — MetalVM C adapter"]
-    Kernel --> K3["<b>srvm/</b> — SageVM interpreter"]
-    Kernel --> K4["<b>hw/</b> — C boot kernel, DTB, SBI"]
-    Kernel --> K5["<b>net/</b> — TCP/IP, DHCP, WiFi glue"]
-    Kernel --> K6["<b>smp/</b> — SageSMP Submodule"]
-    Kernel --> K7["crypto, ssh, vmm"]
-    
-    Drivers --> D1["<b>fs/</b> — ext4, FAT32"]
-    Drivers --> D2["<b>bus/</b> — I2C, SPI"]
-    Drivers --> D3["<b>wifi/</b> — AIC8800, ESP-AT"]
-    Drivers --> D4["<b>gpio/, sys/, uart/</b>"]
-    
-    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
-    style Kernel fill:#0984e3,color:#fff
-    style Drivers fill:#00b894,color:#fff
+
+    subgraph Core["Core OS"]
+        Boot["<b>boot/</b><br/>arch/rv64/{boot.S,linker.ld}<br/><i>Kernel entry</i>"]
+        Bootloader["<b>bootloader/</b><br/>SageBoot submodule"]
+        SM["<b>sagemake</b><br/>Build orchestration"]
+        Shell["<b>shell/</b><br/>shell.sage — interactive prompt"]
+    end
+
+    subgraph KernelSub["kernel/ — SageOS Kernel"]
+        K1["<b>core/</b> kmain, panic, errors"]
+        K2["<b>vm/</b> metal_rv64_vm_impl.c"]
+        K3["<b>srvm/</b> SRVM VM + compiler"]
+        K4["<b>hw/</b> dtb.sage, sbi, vmm, sdcard"]
+        K5["<b>net/</b> tcp_stack, ipv4, dhcp,<br/>dns, http, tls, udp"]
+        K6["<b>crypto/</b> sha256, hmac"]
+        K7["<b>ssh/</b> ssh_client,<br/>cluster_monitor"]
+        K8["<b>rtos/</b> sagertos.sage"]
+        K9["<b>drivers/net/</b> virtio_net.sage"]
+        K10["<b>smp/</b> SageSMP submodule"]
+        KX["pmm, vfs, rootfs,<br/>dmesg, interrupt,<br/>kernel_panic"]
+    end
+
+    subgraph DriversSub["drivers/ — Device Drivers"]
+        D1["<b>gpio/</b> — GPIO"]
+        D2["<b>bus/</b> — i2c, spi, sdio"]
+        D3["<b>uart/</b> — 16550A UART"]
+        D4["<b>usb/</b> — DWC2 OTG"]
+        D5["<b>display/</b> — LCD/VOU"]
+        D6["<b>wifi/</b> — AIC8800, ESP-AT"]
+        D7["<b>fs/</b> — ext4, fat32"]
+        D8["<b>sys/</b> — plic, timer, syscon, wdog"]
+        D9["<b>boards/</b> — licheerv"]
+    end
+
+    subgraph SubMod["Submodules"]
+        RTOS["<b>rtos/SageRTOS/</b><br/>C + Sage scheduler"]
+        FSS["<b>fs/sagefs/</b><br/>CoW B-tree, 30+ modules"]
+        Deps["<b>deps/SageVM/</b><br/>SageVM compiler + VM"]
+    end
+
+    subgraph Userspace["Userspace & Tooling"]
+        Tools["<b>tools/bin/*.sage</b><br/>45 commands (ssh, ls, cat, cp)"]
+        TScr["<b>tools/</b> build_tools.sh,<br/>gen_ssh.sh, mkrootfs.sh"]
+        RFS["<b>rootfs/bin/*.sgvm</b><br/>Compiled binaries"]
+    end
+
+    subgraph ConfigDocs["Configuration & Docs"]
+        Conf["<b>config/boards/</b><br/>qemu-virt, licheerv-nano"]
+        Docs["<b>docs/</b> — architecture, net,<br/>ssh, drivers, kernel, …"]
+        Assets["<b>assets/</b> — MMD, PNG, SVG<br/>architecture diagrams"]
+        Tests["<b>tests/</b> — ssh, net, qemu,<br/>fs, wifi, shell, driver tests"]
+        Images["<b>images/</b> — pre-built binaries"]
+    end
+
+    Root --> Core
+    Root --> KernelSub
+    Root --> DriversSub
+    Root --> SubMod
+    Root --> Userspace
+    Root --> ConfigDocs
+
+    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:3px
+    style Core fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray:5 5
+    style KernelSub fill:transparent,stroke:#0984e3,stroke-width:2px
+    style DriversSub fill:transparent,stroke:#00b894,stroke-width:2px
+    style SubMod fill:transparent,stroke:#2d3436,stroke-width:2px
+    style Userspace fill:transparent,stroke:#e17055,stroke-width:2px
+    style ConfigDocs fill:transparent,stroke:#636e72,stroke-width:2px
     style Boot fill:#6c5ce7,color:#fff
+    style Bootloader fill:#6c5ce7,color:#fff
+    style SM fill:#e84393,color:#fff
     style Shell fill:#fdcb6e,color:#000
-    style Other fill:#636e72,color:#fff
+    style K1 fill:#0984e3,color:#fff
+    style K2 fill:#0984e3,color:#fff
+    style K3 fill:#0984e3,color:#fff
+    style K4 fill:#0984e3,color:#fff
+    style K5 fill:#0984e3,color:#fff
+    style K6 fill:#0984e3,color:#fff
+    style K7 fill:#0984e3,color:#fff
+    style K8 fill:#0984e3,color:#fff
+    style K9 fill:#0984e3,color:#fff
+    style K10 fill:#0984e3,color:#fff
+    style KX fill:#0984e3,color:#fff
+    style D1 fill:#00b894,color:#fff
+    style D2 fill:#00b894,color:#fff
+    style D3 fill:#00b894,color:#fff
+    style D4 fill:#00b894,color:#fff
+    style D5 fill:#00b894,color:#fff
+    style D6 fill:#00b894,color:#fff
+    style D7 fill:#00b894,color:#fff
+    style D8 fill:#00b894,color:#fff
+    style D9 fill:#00b894,color:#fff
+    style RTOS fill:#00b894,color:#fff
+    style FSS fill:#00b894,color:#fff
+    style Deps fill:#2d3436,color:#fff
+    style Tools fill:#e17055,color:#fff
+    style TScr fill:#e17055,color:#fff
+    style RFS fill:#e17055,color:#fff
+    style Conf fill:#636e72,color:#fff
+    style Docs fill:#636e72,color:#fff
+    style Assets fill:#636e72,color:#fff
+    style Tests fill:#636e72,color:#fff
+    style Images fill:#636e72,color:#fff

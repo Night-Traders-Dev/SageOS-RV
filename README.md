@@ -1,6 +1,6 @@
 # SageOS-RV
 
-![Version](https://img.shields.io/badge/version-v0.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.4.0-blue.svg)
 ![Architecture](https://img.shields.io/badge/arch-RISC--V%2064-orange.svg)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-QEMU%20%7C%20LicheeRV%20Nano-lightgrey.svg)
