@@ -7,3 +7,6 @@
 [submodule "bootloader"]
 	path = bootloader
 	url = https://github.com/Night-Traders-Dev/SageBoot
+[submodule "fs/sagefs"]
+	path = fs/sagefs
+	url = https://github.com/Night-Traders-Dev/SageFS
