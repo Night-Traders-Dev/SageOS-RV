@@ -370,8 +370,17 @@ cmd_build() {
 
     cmd_ensure_srvm
 
+    ## 0. Build SageBoot (Unified Bootloader)
+    info "Compiling SageBoot..."
+    if [ -d "${SCRIPT_DIR}/bootloader" ] && [ -f "${SCRIPT_DIR}/bootloader/Makefile" ]; then
+        ( cd "${SCRIPT_DIR}/bootloader" && SAGE_COMPILER="$SAGE" make ARCH="$ARCH" ) >/dev/null 2>&1 \
+            && ok "sageboot.bin built" || warn "SageBoot compile failed"
+    else
+        warn "SageBoot submodule missing. Run 'git submodule update --init'"
+    fi
+
     ## 1. Boot assembly
-    info "Compiling RISC-V boot assembly..."
+    info "Compiling RISC-V boot assembly (fallback)..."
     $CC $BM_CFLAGS $BM_DEFS \
         -I"${SCRIPT_DIR}/boot/arch/rv64" \
         -c "${SCRIPT_DIR}/boot/arch/rv64/boot.S" \
@@ -487,7 +496,13 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
     $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
     ok "Created sageos.bin"
 
+    if [ -f "${SCRIPT_DIR}/bootloader/sageboot.bin" ]; then
+        cp "${SCRIPT_DIR}/bootloader/sageboot.bin" "${IMAGE_DIR}/sageboot.bin"
+        ok "Created sageboot.bin"
+    fi
+
     printf "\n" >&2
+    printf "${GREEN}  [OK]${RESET}   Bootloader: SageBoot (Unified Bootloader)\n" >&2
     printf "${GREEN}  [OK]${RESET}   RTOS: SageRTOS (pure Sage)\n" >&2
     printf "${GREEN}  [OK]${RESET}   Kernel: kmain.sgvm embedded as .sgvm_kernel\n" >&2
     printf "${GREEN}  [OK]${RESET}   Shell:  shell.sgvm  embedded as .sgvm_shell\n" >&2
