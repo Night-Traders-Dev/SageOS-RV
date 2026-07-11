@@ -1,0 +1,180 @@
+SAGEBC1
+functions 1
+function
+params 2
+param 4
+6e616d65
+param 4
+61646472
+constants 3
+string 2
+3a20
+number 0
+string 1
+0a
+code 22
+3b00002a0000002a3b0001000001172a0000022a012c
+endfunction
+chunks 19
+chunk
+constants 1
+string 18
+44726976657220546573742053756974650a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 9
+746573745f61646472
+code 7
+0800000000012c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 4
+4750494f
+number 50462720
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 3
+493243
+number 67108864
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 3
+535049
+number 68681728
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 4
+504c4943
+number 201326592
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 6
+537973436f6e
+number 50335744
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 3
+574454
+number 50397184
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 4
+55415254
+number 68419584
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 10
+5344494f202f204d4d43
+number 70254592
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 8
+5553422044574332
+number 70516736
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 3
+string 9
+746573745f61646472
+string 16
+446973706c6179204d4950492f564f55
+number 50528256
+code 12
+05000000000100000225022c
+endchunk
+chunk
+constants 1
+string 20
+54696d65723a203235204d487a203e2030203d20
+code 6
+0000002a012c
+endchunk
+chunk
+constants 2
+number 25000000
+number 0
+code 10
+000000000001172a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 23
+5769466920414943383830303a20307830324446203d20
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+number 735
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 1
+0a
+code 6
+0000002a012c
+endchunk
+chunk
+constants 1
+string 23
+414c4c204452495645522042415345532056414c49440a
+code 6
+0000002a012c
+endchunk

@@ -871,33 +871,73 @@ static void handle_vmsys(MetalRV64VM *vm, RV64Instruction inst) {
                             volatile int *dbase = (volatile int *)(uintptr_t)0x87010000UL;
                             vm->x[10] = mv_num(dbase[1]);
                         } else if (rv_strcmp(b_name, "run") == 0) {
-                            // run(binary): load and execute a .sgvm file from rootfs
+                            // run("command") - execute a .sgvm file from SRFS
                             MetalValue bin = vm->x[10];
                             if (bin.type == MV_STR && vm->write_char) {
                                 const char *name = rv_string_get(vm, bin.as.str_idx);
-                                // Try to find the binary in rootfs sections
-                                // For now, map known commands to shell_exec
-                                if (rv_strcmp(name, "help") == 0)
-                                    rv_print_str(vm, "Commands: help version about clear dmesg ls mem ps halt\n");
-                                else if (rv_strcmp(name, "version") == 0)
-                                    rv_print_str(vm, "SageOS-RV v0.3.0  RISC-V 64  MetalRV64 (Q32.32)\n");
-                                else if (rv_strcmp(name, "about") == 0)
-                                    rv_print_str(vm, "SageOS-RV: Pure Sage OS for RISC-V 64\n");
-                                else if (rv_strcmp(name, "clear") == 0)
-                                    rv_print_str(vm, "\e[2J\e[H");
-                                else if (rv_strcmp(name, "dmesg") == 0)
-                                    rv_print_str(vm, "dmesg: 256 msgs @ 0x87010000 (32KB ring buffer)\n");
-                                else if (rv_strcmp(name, "ls") == 0)
-                                    rv_print_str(vm, "/bin: help version about clear dmesg ls mem ps halt\n");
-                                else if (rv_strcmp(name, "mem") == 0)
-                                    rv_print_str(vm, "Memory: 256 pages (1 MiB), PMM bump allocator\n");
-                                else if (rv_strcmp(name, "ps") == 0)
-                                    rv_print_str(vm, "PID  NAME        STATE\n  0  shell       RUNNING\n");
-                                else if (rv_strcmp(name, "halt") == 0) {
-                                    rv_print_str(vm, "Halting...\n");
-                                    vm->halted = 1; vm->running = 0; return;
+                                rv_print_str(vm, "RUN BUILTIN CALLED WITH NAME: ");
+                                rv_print_str(vm, name);
+                                rv_print_str(vm, "\n");
+                                extern uint8_t _binary_rootfs_bin_start[];
+                                uint8_t *ptr = _binary_rootfs_bin_start;
+                                int found = 0;
+                                
+                                if (ptr[0] == 'S' && ptr[1] == 'R' && ptr[2] == 'F' && ptr[3] == 'S') {
+                                    rv_print_str(vm, "RUN: Found SRFS signature\n");
+                                    uint32_t count = *(uint32_t*)(ptr + 4);
+                                    uint32_t pos = 8;
+                                    
+                                    char target[128];
+                                    int len = 0;
+                                    target[len++] = 'b'; target[len++] = 'i'; target[len++] = 'n'; target[len++] = '/';
+                                    const char *nptr = name;
+                                    while (*nptr && len < 120) target[len++] = *nptr++;
+                                    target[len++] = '.'; target[len++] = 's'; target[len++] = 'g'; target[len++] = 'v'; target[len++] = 'm';
+                                    target[len] = '\0';
+                                    
+                                    rv_print_str(vm, "RUN: Searching for target: ");
+                                    rv_print_str(vm, target);
+                                    rv_print_str(vm, "\n");
+                                    
+                                    for (uint32_t i = 0; i < count; i++) {
+                                        char fname[64];
+                                        for (int j=0; j<64; j++) fname[j] = ptr[pos + j];
+                                        uint32_t fsize = *(uint32_t*)(ptr + pos + 64);
+                                        pos += 68;
+                                        
+                                        if (rv_strcmp(fname, target) == 0) {
+                                            rv_print_str(vm, "RUN: Target found in SRFS!\n");
+                                            found = 1;
+                                            MetalRV64VM sub_vm;
+                                            metal_rv64_vm_init(&sub_vm);
+                                            sub_vm.read_char = vm->read_char;
+                                            sub_vm.write_char = vm->write_char;
+                                            metal_rv64_vm_register_kernel_builtins(&sub_vm);
+                                            metal_rv64_vm_load_binary(&sub_vm, ptr + pos, fsize);
+                                            
+                                            // Handle multi-chunk execution if any
+                                            for (int c = 0; c < sub_vm.chunk_count; c++) {
+                                                sub_vm.current_chunk_idx = c;
+                                                sub_vm.bytecode = sub_vm.chunks[c];
+                                                sub_vm.bytecode_length = sub_vm.chunk_lengths[c];
+                                                sub_vm.pc = 0;
+                                                metal_rv64_vm_run(&sub_vm);
+                                                if (sub_vm.halted) {
+                                                    if (rv_strcmp(name, "halt") == 0) vm->halted = 1;
+                                                    break;
+                                                }
+                                            }
+                                            break;
+                                        }
+                                        uint32_t padded = (fsize + 3) & ~3;
+                                        pos += padded;
+                                    }
                                 } else {
-                                    rv_print_str(vm, name); rv_print_str(vm, ": not found\n");
+                                    rv_print_str(vm, "RUN: NO SRFS SIGNATURE FOUND!\n");
+                                }
+                                if (!found) {
+                                    rv_print_str(vm, "RUN: TARGET NOT FOUND. Printing error...\n");
+                                    rv_print_str(vm, name); rv_print_str(vm, ": command not found\n");
                                 }
                             }
                             vm->x[10] = mv_nil();

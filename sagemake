@@ -114,8 +114,8 @@ KERNEL_CORE="${SCRIPT_DIR}/kernel/core"
 ## Bare-metal compile flags
 BM_CFLAGS="${BM_ARCH} -nostdlib -ffreestanding -O2"
 BM_DEFS="-DSAGE_BARE_METAL -DSAGE_METAL_VM -DUART_BASE=${UART_BASE} -DCONFIG_MEM_BASE=${QEMU_MEM_BASE} -DCONFIG_TIMER_FREQ=${TIMER_FREQ} ${BM_EXTRA_DEFS:-}"
-## SageVM optional layer
-if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
+USE_SAGEVM="${USE_SAGEVM:-0}"
+if [ "${USE_SAGEVM}" = "1" ]; then
     BM_DEFS="$BM_DEFS -DCONFIG_SAGEVM"
 fi
 
@@ -253,7 +253,7 @@ compile_metalvm() {
 ## sgvm compile helpers
 ## ---------------------------------------------------------------------------
 compile_kernel_sgvm() {
-    if [ "${SAGEVM_ENABLED:-0}" != "1" ]; then
+    if [ "${USE_SAGEVM:-0}" != "1" ]; then
         warn "SageVM disabled — skipping kernel .sgvm compilation"
         return 0
     fi
@@ -268,7 +268,7 @@ compile_kernel_sgvm() {
 }
 
 compile_shell_sgvm() {
-    if [ "${SAGEVM_ENABLED:-0}" != "1" ]; then
+    if [ "${USE_SAGEVM:-0}" != "1" ]; then
         warn "SageVM disabled — skipping shell .sgvm compilation"
         return 0
     fi
@@ -391,10 +391,10 @@ cmd_build() {
     "${SCRIPT_DIR}/tools/build_tools.sh" > /dev/null 2>&1 || true
     "${SCRIPT_DIR}/tools/mkrootfs.sh" "${SCRIPT_DIR}/rootfs" "${BUILD_DIR}/rootfs.bin" > /dev/null
     local rootfs_obj="${BUILD_DIR}/rootfs_obj.o"
-    $OBJCOPY -I binary -O elf64-littleriscv -B riscv \
+    ( cd "${BUILD_DIR}" && $OBJCOPY -I binary -O elf64-littleriscv -B riscv \
         --rename-section .data=.rootfs \
         --set-section-flags .rootfs=alloc,load,readonly \
-        "${BUILD_DIR}/rootfs.bin" "${rootfs_obj}" \
+        rootfs.bin $(basename "${rootfs_obj}") ) \
         && ok "rootfs embedded" || fail "objcopy embed failed for rootfs"
 
     ## 3.1 Embed AIC8800 firmware
@@ -415,7 +415,7 @@ cmd_build() {
 
     ## 3. Embed blobs (skip if SageVM disabled)
     local kernel_sgvm_obj="" shell_sgvm_obj=""
-if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
+if [ "${USE_SAGEVM:-0}" = "1" ]; then
         kernel_sgvm_obj=$(embed_kernel_sgvm)
         shell_sgvm_obj=$(embed_shell_sgvm)
     fi

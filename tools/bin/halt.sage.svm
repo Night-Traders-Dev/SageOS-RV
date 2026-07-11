@@ -1,10 +1,19 @@
 SAGEBC1
 functions 0
-chunks 1
+chunks 2
 chunk
 constants 1
 string 18
 48616c74696e672073797374656d2e2e2e0a
 code 6
 0000002a012c
+endchunk
+chunk
+constants 2
+string 3
+72756e
+string 4
+68616c74
+code 9
+05000000000125012c
 endchunk

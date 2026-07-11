@@ -1,6 +1,6 @@
 SAGEBC1
 functions 0
-chunks 15
+chunks 4
 chunk
 constants 1
 string 29
@@ -16,100 +16,24 @@ code 6
 0000002a012c
 endchunk
 chunk
-constants 2
+constants 8
+number 1
+string 6
+736167652320
+string 8
+726561646c696e65
+string 5
+7374726571
+string 0
+
+string 5
+7374726571
+string 4
+65786974
 string 3
 72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
-string 3
-72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
-string 3
-72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
-string 3
-72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
-string 3
-72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
-endchunk
-chunk
-constants 2
-string 3
-72756e
-string 4
-68656c70
-code 9
-05000000000125012c
-endchunk
-chunk
-constants 1
-string 1
-0a
-code 6
-0000002a012c
+code 74
+000000240047040000012a05000225000500033b0000000004250221240042040500053b0000000006250224003504230047230036040500073b0000250104230043040423000004012c
 endchunk
 chunk
 constants 1
