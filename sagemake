@@ -521,6 +521,9 @@ if [ "${USE_SAGEVM:-0}" = "1" ]; then
     $OBJCOPY -O binary "${BUILD_DIR}/sageos.elf" "${IMAGE_DIR}/sageos.bin"
     ok "Created sageos.bin"
 
+    mkimage -A riscv -O linux -T kernel -C none -a 0x80200000 -e 0x80200000 -n "SageOS-RV" -d "${IMAGE_DIR}/sageos.bin" "${IMAGE_DIR}/uImage" >/dev/null 2>&1
+    ok "Created uImage"
+
     if [ -f "${SCRIPT_DIR}/bootloader/sageboot.bin" ]; then
         cp "${SCRIPT_DIR}/bootloader/sageboot.bin" "${IMAGE_DIR}/sageboot.bin"
         ok "Created sageboot.bin"

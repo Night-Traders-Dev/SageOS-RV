@@ -179,7 +179,7 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
     }
 
 done:
-#ifdef CONFIG_BOARD_LICHERV_NANO
+#ifdef CONFIG_BOARD_LICHEERV_NANO
     if (info->mem_size == 0) {
         info->mem_base = 0x80200000;
         info->mem_size = 256UL * 1024 * 1024;

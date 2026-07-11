@@ -10,11 +10,29 @@
 #include "sbi.h"
 
 #ifndef UART_BASE
-#  ifdef CONFIG_BOARD_LICHERV_NANO
+#  ifdef CONFIG_BOARD_LICHEERV_NANO
 #    define UART_BASE  0x04140000
 #  else
 #    define UART_BASE  0x10000000
 #  endif
+#endif
+
+#ifdef CONFIG_BOARD_LICHEERV_NANO
+#define UART_THR 0
+#define UART_IER 4
+#define UART_FCR 8
+#define UART_LCR 12
+#define UART_LSR 20
+#define UART_WRITE(val, off, base, tmpreg) li tmpreg, val; sw tmpreg, off(base)
+#define UART_READ(reg, off, base) lw reg, off(base)
+#else
+#define UART_THR 0
+#define UART_IER 1
+#define UART_FCR 2
+#define UART_LCR 3
+#define UART_LSR 5
+#define UART_WRITE(val, off, base, tmpreg) li tmpreg, val; sb tmpreg, off(base)
+#define UART_READ(reg, off, base) lbu reg, off(base)
 #endif
 
     .section .text.boot
@@ -47,41 +65,36 @@ _start:
 
     ## Initialize UART (16550A) for direct kernel access
     li   t0, UART_BASE       ## UART base (board-specific)
-    sb   zero, 1(t0)         ## IER = 0 (disable interrupts)
-    li   t1, 0x03
-    sb   t1, 3(t0)           ## LCR = 0x03 (8N1, DLAB=0)
-    li   t1, 0xC7
-    sb   t1, 2(t0)           ## FCR = 0xC7 (enable FIFO, clear, 14-byte threshold)
+    UART_WRITE(0x00, UART_IER, t0, t1)
+    UART_WRITE(0x03, UART_LCR, t0, t1)
+    UART_WRITE(0xC7, UART_FCR, t0, t1)
 
     ## Verify UART by polling THRE (should be 1 after init)
     li   t2, 0x20            ## THRE bit mask
 1:
-    lbu  t3, 5(t0)           ## Read LSR (byte access)
+    UART_READ(t3, UART_LSR, t0)
     and  t3, t3, t2
     beqz t3, 1b
 
     ## Output 'K' via direct UART to confirm init works
-    li   t1, 0x4B            ## 'K'
-    sb   t1, 0(t0)           ## Write THR (byte access)
+    UART_WRITE(0x4B, UART_THR, t0, t1)
 
     ## Wait for THR empty
 2:
-    lbu  t3, 5(t0)
+    UART_READ(t3, UART_LSR, t0)
     and  t3, t3, t2
     beqz t3, 2b
 
     ## Output '!' 
-    li   t1, 0x21            ## '!'
-    sb   t1, 0(t0)
+    UART_WRITE(0x21, UART_THR, t0, t1)
 
 3:
-    lbu  t3, 5(t0)
+    UART_READ(t3, UART_LSR, t0)
     and  t3, t3, t2
     beqz t3, 3b
 
     ## Output newline
-    li   t1, 0x0A            ## '\n'
-    sb   t1, 0(t0)
+    UART_WRITE(0x0A, UART_THR, t0, t1)
 
     ## Clear BSS
     la   t0, _bss_start

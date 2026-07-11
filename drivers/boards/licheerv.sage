@@ -48,6 +48,8 @@ proc board_init():
     ## Initialize clock tree
     clkgen_init()
     
+    ## Set UART stride for SG2002 (stride=2, width=4)
+    uart_set_stride(2, 4)
     ## Initialize UART (console should already be up)
     uart_init(UART_BASE)
     

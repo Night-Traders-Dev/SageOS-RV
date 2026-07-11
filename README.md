@@ -10,6 +10,15 @@ Target hardware: LicheeRV Nano W (Sophgo SG2002 + AIC8800 WiFi 6). Development p
 
 ---
 
+## Current Status & Known Issues
+
+**Status:** The kernel successfully compiles and boots on real hardware (LicheeRV Nano / SG2002). The preprocessor macro for the LicheeRV Nano board (`CONFIG_BOARD_LICHEERV_NANO`) has been fixed across the codebase, ensuring the correct UART base address is used and preventing early `Load Access Fault` crashes that were throwing the board into FEL mode.
+
+**Where we are stuck:** 
+The USB CDC ACM gadget driver (`kernel/drivers/usb_cdc_acm.c`) fails to fully enumerate on the host PC. Although the board is running the kernel loop, the host does not see `ttyACM0` or any new USB device connection in `dmesg`. We have reverted `usb_cdc_acm.c` to its original known-good Full-Speed implementation, but it appears the DWC2 PHY initialization sequence or clock gating for the SG2002 chip is missing a critical step to pull up the D+ line. Further debugging requires verifying the SG2002 UTMI PHY reset sequence and clock enablement.
+
+---
+
 ## Architecture Overview
 
 SageOS-RV uses a layered architecture with optional SageVM runtime:

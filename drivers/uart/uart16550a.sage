@@ -30,29 +30,38 @@ let UART_MSR  = 6   ## Modem Status Register
 let LSR_DR    = 0x01   ## Data Ready
 let LSR_THRE  = 0x20   ## Transmitter Holding Register Empty
 
+## Stride and Width for SG2002 compatibility
+## (In a real system, these would be struct fields. Using globals for simplicity)
+let uart_stride = 0
+let uart_wsize = 1
+
 ## --- Driver API ---
+
+proc uart_set_stride(stride, width):
+    uart_stride = stride
+    uart_wsize = width
 
 proc uart_init(base):
     ## Disable interrupts
-    mem_write(base + UART_IER, 0, 1)
+    mem_write(base + (UART_IER << uart_stride), 0, uart_wsize)
     ## Enable FIFO, clear buffers, 14-byte threshold
-    mem_write(base + UART_FCR, 0xC7, 1)
+    mem_write(base + (UART_FCR << uart_stride), 0xC7, uart_wsize)
     ## 8N1 mode (8 data bits, no parity, 1 stop bit)
-    mem_write(base + UART_LCR, 0x03, 1)
+    mem_write(base + (UART_LCR << uart_stride), 0x03, uart_wsize)
 
 proc uart_putc(base, ch):
     ## Wait for transmitter holding register to be empty
-    while (mem_read(base + UART_LSR, 1) & LSR_THRE) == 0:
+    while (mem_read(base + (UART_LSR << uart_stride), uart_wsize) & LSR_THRE) == 0:
         pass
     ## Write the character
-    mem_write(base + UART_THR, ch, 1)
+    mem_write(base + (UART_THR << uart_stride), ch, uart_wsize)
 
 proc uart_getc(base):
     ## Check if data is available
-    if (mem_read(base + UART_LSR, 1) & LSR_DR) == 0:
+    if (mem_read(base + (UART_LSR << uart_stride), uart_wsize) & LSR_DR) == 0:
         return -1
     ## Read the received character
-    return mem_read(base + UART_RBR, 1)
+    return mem_read(base + (UART_RBR << uart_stride), uart_wsize) & 0xFF
 
 proc uart_puts(base, s):
     ## Write each character of the string

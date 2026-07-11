@@ -35,40 +35,51 @@
  * UART 16550A  (QEMU virt / LicheeRV Nano base address)
  * -------------------------------------------------------------------------- */
 /* UART base — from build system (-DUART_BASE) or board-aware fallback */
+#ifdef CONFIG_BOARD_LICHEERV_NANO
 #ifndef UART_BASE
-#ifdef CONFIG_BOARD_LICHERV_NANO
 #define UART_BASE  0x04140000UL
+#endif
+#define UART_SHIFT 2
+#define UART_W32 1
 #else
+#ifndef UART_BASE
 #define UART_BASE  0x10000000UL
 #endif
+#define UART_SHIFT 0
+#define UART_W32 0
 #endif
-#define UART_THR   0
-#define UART_RBR   0
-#define UART_IER   1
-#define UART_FCR   2
-#define UART_LCR   3
-#define UART_LSR   5
+#define UART_THR   (0 << UART_SHIFT)
+#define UART_RBR   (0 << UART_SHIFT)
+#define UART_IER   (1 << UART_SHIFT)
+#define UART_FCR   (2 << UART_SHIFT)
+#define UART_LCR   (3 << UART_SHIFT)
+#define UART_LSR   (5 << UART_SHIFT)
 #define UART_THRE  0x20
 #define UART_DR    0x01
 
-static inline void    _w8(uint64_t a, uint8_t v) { *(volatile uint8_t *)a = v; }
-static inline uint8_t _r8(uint64_t a)            { return *(volatile uint8_t *)a; }
+static inline void    _w_uart(uint64_t a, uint32_t v) { 
+    if (UART_W32) *(volatile uint32_t *)a = v; 
+    else *(volatile uint8_t *)a = (uint8_t)v; 
+}
+static inline uint32_t _r_uart(uint64_t a) { 
+    if (UART_W32) return *(volatile uint32_t *)a; 
+    else return *(volatile uint8_t *)a; 
+}
 
 static void uart_init(void) {
-    _w8(UART_BASE + UART_IER, 0x00);
-    _w8(UART_BASE + UART_FCR, 0xC7);
-    _w8(UART_BASE + UART_LCR, 0x03);
+    _w_uart(UART_BASE + UART_IER, 0x00);
+    _w_uart(UART_BASE + UART_FCR, 0xC7);
+    _w_uart(UART_BASE + UART_LCR, 0x03);
 }
 
 static void uart_putc(char c) {
-    while ((_r8(UART_BASE + UART_LSR) & UART_THRE) == 0);
-    _w8(UART_BASE + UART_THR, (uint8_t)c);
+    while ((_r_uart(UART_BASE + UART_LSR) & UART_THRE) == 0);
+    _w_uart(UART_BASE + UART_THR, (uint8_t)c);
 }
 
 static int uart_getchar(void) {
-    // Direct UART poll — no SBI blocking
-    if (_r8(UART_BASE + UART_LSR) & UART_DR)
-        return (int)_r8(UART_BASE + UART_RBR);
+    if (_r_uart(UART_BASE + UART_LSR) & UART_DR)
+        return (int)(_r_uart(UART_BASE + UART_RBR) & 0xFF);
     return -1;
 }
 
@@ -358,7 +369,9 @@ void trap_handler_c(uint64_t *regs, uint64_t cause, uint64_t tval) {
 void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr) {
     uart_init();
     dmesg_init();
+#ifdef CONFIG_BOARD_LICHEERV_NANO
     usb_init();
+#endif
 
     dmesg_write("SageOS-RV kernel starting...\n");
     uart_puts("SageOS-RV: Starting hardware initialization.\n");
@@ -491,9 +504,13 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr
         char suggestion[256] = ""; int suggest_len = 0;
 
         while (pos < 254) {
+#ifdef CONFIG_BOARD_LICHEERV_NANO
             usb_poll_main();
             int c = uart_getchar();
             if (c < 0) c = usb_getchar();
+#else
+            int c = uart_getchar();
+#endif
             if (c < 0) continue;
 
             // --- Ctrl key combos ---

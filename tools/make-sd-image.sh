@@ -80,6 +80,14 @@ fi
 echo ""
 
 # --- Partition table ---
+echo "Wiping existing partition table to prevent auto-mounter interference..."
+if [ "$IS_BLOCK" -eq 1 ]; then
+    wipefs -a "$DEVICE" 2>/dev/null || true
+    dd if=/dev/zero of="$DEVICE" bs=1M count=10 status=none
+    partprobe "$DEVICE" 2>/dev/null || true
+    sleep 2
+fi
+
 echo "Writing partition table..."
 PART_START=2048
 PART_SIZE_SECTORS=$((BOOT_SIZE_MB * 2048))
@@ -135,9 +143,60 @@ else
     mount -o loop,offset=$PART_OFFSET "$DEVICE" "$TMP_MNT"
 fi
 
+# --- Generate FIT Image (boot.sd) ---
+echo "Generating boot.sd (FIT image)..."
+ITS_FILE=$(mktemp /tmp/sageos-its-XXXXXX)
+cat > "$ITS_FILE" <<EOF
+/dts-v1/;
+/ {
+    description = "SageOS-RV FIT Image";
+    #address-cells = <1>;
+    images {
+        kernel {
+            description = "SageOS-RV Kernel";
+            data = /incbin/("$PROJECT_DIR/images/sageos.bin");
+            type = "kernel";
+            arch = "riscv";
+            os = "linux";
+            compression = "none";
+            load = <0x80200000>;
+            entry = <0x80200000>;
+        };
+        fdt {
+            description = "SageOS-RV Device Tree";
+            data = /incbin/("$DTB_OUT");
+            type = "flat_dt";
+            arch = "riscv";
+            compression = "none";
+        };
+    };
+    configurations {
+        default = "config-sg2002_licheervnano_sd";
+        config-sg2002_licheervnano_sd {
+            description = "Boot SageOS-RV (LicheeRV Nano)";
+            kernel = "kernel";
+            fdt = "fdt";
+        };
+        config-cv1800b_sophpi_duo_sd {
+            description = "Boot SageOS-RV (Milk-V Duo)";
+            kernel = "kernel";
+            fdt = "fdt";
+        };
+        conf-sg2002_licheervnano_sd {
+            description = "Boot SageOS-RV (alt conf name)";
+            kernel = "kernel";
+            fdt = "fdt";
+        };
+    };
+};
+EOF
+mkimage -f "$ITS_FILE" "$TMP_MNT/boot.sd" >/dev/null 2>&1
+rm -f "$ITS_FILE"
+
 cp "$FIP_SRC"                "$TMP_MNT/fip.bin"
-cp images/boot.scr           "$TMP_MNT/boot.scr"
-cp images/sageos.bin         "$TMP_MNT/sageos.bin"
+cp "$PROJECT_DIR/images/boot.scr" "$TMP_MNT/boot.scr"
+cp "$PROJECT_DIR/images/sageos.bin" "$TMP_MNT/sageos.bin"
+cp "$PROJECT_DIR/images/uImage"     "$TMP_MNT/uImage"
 cp "$DTB_OUT"                "$TMP_MNT/sg2002-licheerv-nano.dtb"
 
 sync
