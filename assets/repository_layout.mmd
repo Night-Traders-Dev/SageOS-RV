@@ -4,8 +4,11 @@ flowchart LR
     Boot["<b>boot/</b><br/><i>Bare-metal entry & linker</i>"]
     Root --> Boot
     
+    Root --> Bootloader["<b>bootloader/</b><br/><i>SageBoot Submodule</i>"]
     Root --> Kernel["<b>kernel/</b>"]
     Root --> Drivers["<b>drivers/</b>"]
+    Root --> FS["<b>fs/sagefs/</b><br/><i>SageFS Submodule</i>"]
+    Root --> RTOS["<b>rtos/SageRTOS/</b><br/><i>SageRTOS Submodule</i>"]
     
     Shell["<b>shell/</b><br/><i>Interactive prompt</i>"]
     Root --> Shell
@@ -18,8 +21,8 @@ flowchart LR
     Kernel --> K3["<b>srvm/</b> — SageVM interpreter"]
     Kernel --> K4["<b>hw/</b> — C boot kernel, DTB, SBI"]
     Kernel --> K5["<b>net/</b> — TCP/IP, DHCP, WiFi glue"]
-    Kernel --> K6["<b>rtos/, crypto/, ssh/</b>"]
-    Kernel --> K7["vfs, rootfs, dmesg, vmm"]
+    Kernel --> K6["<b>smp/</b> — SageSMP Submodule"]
+    Kernel --> K7["crypto, ssh, vmm"]
     
     Drivers --> D1["<b>fs/</b> — ext4, FAT32"]
     Drivers --> D2["<b>bus/</b> — I2C, SPI"]
