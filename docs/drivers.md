@@ -22,9 +22,22 @@ The SDIO driver provides a transport layer for devices connected over SDIO (prim
 
 *   **File:** `drivers/wifi/aic8800.sage`
 *   **Firmware:** `drivers/wifi/firmware/aic8800_fw.bin`
+*   **SDIO Base:** `0x04320000` (SDHCI1 on SG2002)
+*   **IPC Base:** `0x87000000` (shared memory)
 
 The LicheeRV Nano W features an onboard AIC8800D WiFi 6 and Bluetooth 5.2 chip connected via SDIO.
-The driver initializes the SDIO bus, verifies the Vendor ID and Device ID, and then streams the proprietary `aic8800_fw.bin` firmware blob into the chip's RAM to boot its internal core. Once the firmware is running, the driver communicates with the chip using an IPC (Inter-Processor Communication) shared-memory protocol to execute networking commands like `wifi scan` and `wifi connect`.
+The driver initializes the SDIO bus, reads the Vendor/Device ID via CMD52, and enables SDIO Function 1. It checks for a firmware blob in the `.aic_fw` linker section (magic `0x46495741` = `"AWIF"`), or falls back to downloading via SDIO.
+
+Once the firmware is running, the driver uses an IPC mailbox protocol over shared memory at `0x87000000`:
+
+| Register | Offset | Purpose |
+|---|---|---|
+| `AIC_IPC_MBOX_CTRL` | `0x00` | Command trigger |
+| `AIC_IPC_MBOX_TX` | `0x04` | Command argument |
+| `AIC_IPC_MBOX_RX` | `0x08` | Response value |
+| `AIC_IPC_MBOX_STS` | `0x0C` | Status flags (bit 0 = busy, bit 2 = response ready) |
+
+Supported commands: `AIC_CMD_INIT`, `AIC_CMD_SCAN`, `AIC_CMD_CONNECT`, `AIC_CMD_DISCONNECT`, `AIC_CMD_GET_STATUS`. The driver also provides `aic8800_get_mac()` to read the MAC address from firmware.
 
 ## Display & Graphics (VOU / MIPI DSI)
 
@@ -47,3 +60,38 @@ It then brings up the MIPI D-PHY, configures the DSI MAC for High-Speed (HS) vid
 
 This driver initializes the USB controller in Device Mode, allowing the LicheeRV Nano W to enumerate as a peripheral when plugged into a host PC.
 It handles soft-resetting the core, enabling global interrupts, and configuring Endpoint 0 (EP0) for Control Transfers. An interrupt polling routine (`dwc2_poll`) is provided to handle USB Reset and Enumeration Done events from the host, correctly reading the negotiated link speed and re-arming EP0 to receive the subsequent SETUP packets (like Get Descriptor).
+
+## Clock Generator (SG2002 CLKGEN)
+
+*   **File:** `drivers/sys/clkgen.sage`
+*   **Target:** SG2002 Clock Generator + PLLs
+*   **Base Address (SG2002):** CLKGEN `0x03002000`, PLL `0x03001C00`
+
+Manages the SG2002 clock tree: CPU, AXI, AHB, APB clock dividers and PLL control. Called during early board init to verify clock configuration. Provides `clkgen_set_uart_div()` and `clkgen_set_sd_div()` for peripheral clock adjustment.
+
+## Power Management (AXP15060 PMIC)
+
+*   **File:** `drivers/sys/pmic.sage`
+*   **Target:** X-Powers AXP15060 (or compatible) via I2C0
+*   **I2C Address:** `0x34`
+
+Manages voltage rails for CPU core, DDR, IO, and WiFi via I2C0. Reads chip ID and status, enables power-on control, and provides `pmic_set_cpu_voltage(mv)` / `pmic_set_wifi_voltage(mv)` for dynamic voltage scaling.
+
+## Board Support Packages
+
+### LicheeRV Nano (`drivers/boards/licheerv.sage`)
+
+Master BSP that orchestrates all SG2002 peripheral init:
+1. `clkgen_init()` — clock tree
+2. `uart_init(0x04140000)` — console
+3. `i2c_init(0, 400000)` — I2C bus for PMIC
+4. `pmic_init()` — power rails
+5. `plic_init()` + `plic_enable_uart()` — interrupts
+
+Also provides `wifi_init()`, `print_board_info()`, and onboard LED helpers (`led_init`, `led_on`, `led_off`, `led_blink`).
+
+### QEMU virt (`drivers/boards/qemu-virt.sage`)
+
+Symmetric board BSP for QEMU virt development:
+- `uart_init(0x10000000)` — 16550A UART
+- `plic_init(0x0C000000)` — PLIC interrupt controller

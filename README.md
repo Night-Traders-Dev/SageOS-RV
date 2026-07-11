@@ -1,12 +1,12 @@
 # SageOS-RV
 
-![Version](https://img.shields.io/badge/version-v0.4.0-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.5.0-blue.svg)
 ![Architecture](https://img.shields.io/badge/arch-RISC--V%2064-orange.svg)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-QEMU%20%7C%20LicheeRV%20Nano-lightgrey.svg)
 
 **A pure-Sage operating system for RISC-V 64.**  
-Target hardware: LicheeRV Nano W (Sophgo SG2002 + AIC8800 WiFi 6). Development platform: QEMU `virt`.
+Target hardware: LicheeRV Nano W (Sophgo SG2002 + AIC8800 WiFi 6). Development platform: QEMU `virt` (also builds for LicheeRV Nano via `BOARD=licheerv-nano`).
 
 ---
 
@@ -53,6 +53,24 @@ SAGEVM_ENABLED=1 ./sagemake build
 
 # Board-specific builds:
 BOARD=licheerv-nano ./sagemake build
+```
+
+### Building for LicheeRV Nano
+
+```bash
+BOARD=licheerv-nano ./sagemake build
+```
+
+The LicheeRV config selects:
+- **Linker**: `boot/arch/rv64/linker-licheerv.ld` — 254 MB DRAM, stack at `0x8FE00000`
+- **UART**: `0x04140000` (SG2002 UART0, 16550A-compatible)
+- **Timer**: 25 MHz ACLINT MTIMER via SBI TIME
+- **PLIC**: `0x0C000000` (same as QEMU virt)
+- **Drivers**: clkgen, PMIC (AXP15060 via I2C), onboard AIC8800 WiFi
+
+Flash to SD card:
+```bash
+sudo dd if=images/sageos.bin of=/dev/mmcblk0 bs=1M seek=2
 ```
 
 ### Expected Boot Output
@@ -168,6 +186,10 @@ Built-in commands via `shell_exec()` builtin (dispatched in C for reliable strin
 | `dwc2.sage` | USB OTG | Synopsys DWC2 device mode, EP0 setup |
 | `wifi_aic8800.sage` | AIC8800D WiFi 6 | SDIO transport, firmware load, scan/connect |
 | `virtio_net.sage` | QEMU virtio-net-pci | Virtqueue ring management, TX/RX frame submission |
+| `clkgen.sage` | SG2002 Clock Generator | CLKGEN/PLL init, clock dividers |
+| `pmic.sage` | AXP15060 PMIC (I2C) | Voltage rails, power-on sequencing |
+| `licheerv.sage` | LicheeRV Nano BSP | Board init: clock, PMIC, PLIC, UART, WiFi |
+| `qemu-virt.sage` | QEMU virt BSP | Board init: UART, PLIC |
 
 ### Networking (Pure Sage)
 
@@ -179,6 +201,20 @@ Built-in commands via `shell_exec()` builtin (dispatched in C for reliable strin
 - **SSH client** — SSH-2.0 protocol (RFC 4251-4254): KEX, auth, channels, command exec
 - **Crypto library** — SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 2104)
 - **Cluster monitor** — SSH into 3 nodes, check RAM, run cleanup when below 20%
+
+### Board Support
+
+| Board | Config | Linker | UART | RAM | Timer | Status |
+|---|---|---|---|---|---|---|
+| **QEMU virt** | `config/boards/qemu-virt.conf` | `linker.ld` | `0x10000000` | 128 MB | 10 MHz CLINT | Boots to shell |
+| **LicheeRV Nano** | `config/boards/licheerv-nano.conf` | `linker-licheerv.ld` | `0x04140000` | 256 MB | 25 MHz ACLINT | Compiles, untested on HW |
+
+Both builds pass `./sagemake build`. The LicheeRV config adds:
+- `CONFIG_BOARD_LICHERV_NANO` compile define
+- Board-aware DTB fallback defaults (256 MB, 25 MHz, 0x04140000 UART)
+- SG2002 clock tree init via `drivers/sys/clkgen.sage`
+- AXP15060 PMIC init via `drivers/sys/pmic.sage`
+- Device Tree source at `boot/dts/sg2002-licheerv-nano.dts`
 
 ### C → Sage Porting Progress
 
@@ -196,6 +232,13 @@ Dead code removed: `kernel/metalvm/` (2,800 lines hosted reference, never compil
 
 ## Recent Changes
 
+- **LicheeRV Nano hardware boot support** — closed all 12 gaps identified for
+  booting on real SG2002 hardware: board-aware UART_BASE fallback (0x04140000),
+  DTB defaults (256 MB/25 MHz), VMM identity-maps both UART regions, CLINT
+  replaced with portable SBI TIME, `boot/start.sage` probes DTB at runtime,
+  SG2002 DTS source, clock generator + PMIC drivers, AIC8800 IPC firmware
+  protocol, QEMU-virt BSP for symmetry. Both `./sagemake build` and
+  `BOARD=licheerv-nano ./sagemake build` pass.
 - **SSH wired to real TCP transport** (`tools/bin/ssh.sage` → `rootfs/bin/ssh.sgvm`): SSH
   command now links to `kernel/net/tcp_stack.sage` via `tools/gen_ssh.sh`; the TCP stack is
   transport-agnostic with backends for `"loopback"` (software queue for tests) and `"kernel"`
@@ -236,7 +279,8 @@ Run the full testing pipeline:
 
 - **Virtio-net RX**: `netdev_rx` is a stub (returns `nil`) — no real frame reception yet; full virtio-net PCI driver still needed
 - **Curve25519/AES-CTR**: SSH key exchange and encryption depend on SageVM crypto builtins not yet available under the embedded RV64 VM
-- **Hardware testing**: LicheeRV Nano W not yet tested on physical hardware.
+- **AIC8800 WiFi IPC**: IPC mailbox protocol is implemented but untested on hardware — needs physical test to validate firmware upload
+- **LicheeRV Nano**: Code compiles and all 12 boot gaps are closed, but has not been tested on physical hardware yet
 
 ---
 
