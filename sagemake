@@ -468,6 +468,15 @@ if [ "${SAGEVM_ENABLED:-0}" = "1" ]; then
         fi
     fi
 
+    ## 7.2 SageSMP Protocol Driver
+    if [ -f "${SCRIPT_DIR}/kernel/smp/src/sage/all.sage" ]; then
+        if "$SAGEVM" compile "${SCRIPT_DIR}/kernel/smp/src/sage/all.sage" "${BUILD_DIR}/drv_smp.sgvm" --riscv 2>/dev/null; then
+            ok "Driver compiled: smp"
+        else
+            warn "Failed to compile smp driver"
+        fi
+    fi
+
     ## 8. Link
     info "Linking kernel image..."
     local link_script="${SCRIPT_DIR}/boot/arch/rv64/linker.ld"

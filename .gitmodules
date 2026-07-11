@@ -10,3 +10,6 @@
 [submodule "fs/sagefs"]
 	path = fs/sagefs
 	url = https://github.com/Night-Traders-Dev/SageFS
+[submodule "kernel/smp"]
+	path = kernel/smp
+	url = https://github.com/Night-Traders-Dev/SageSMP

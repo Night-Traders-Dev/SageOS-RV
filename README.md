@@ -160,6 +160,7 @@ Built-in commands via `shell_exec()` builtin (dispatched in C for reliable strin
 | `fat.sage` | FAT32 Filesystem | Read-only FAT32 parsing |
 | `ext4.sage` | Ext4 Filesystem | Read-only Ext4 parsing |
 | `sagefs/src/all.sage` | SageFS | Native CoW B-tree log-structured filesystem |
+| `smp/src/sage/all.sage` | SageSMP | Distributed multicore messaging & mailboxes |
 | `watchdog.sage` | DesignWare WDT | init, kick, disable, timeout presets |
 | `sdcard.sage` | SD Card / MMC | DW-MSHC SDHCI driver, MBR parsing |
 | `sdio.sage` | SDIO Bus | DW-MSHC SDIO CMD52/CMD53 operations |
