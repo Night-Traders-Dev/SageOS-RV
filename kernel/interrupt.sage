@@ -25,7 +25,7 @@ let IRQ_S_SOFTWARE = 0x80000001
 let IRQ_S_TIMER = 0x80000005
 let IRQ_S_EXTERNAL = 0x80000009
 
-## PLIC registers (QEMU virt)
+## PLIC registers (same base 0x0C000000 on QEMU and SG2002)
 let PLIC_BASE = 0x0C000000
 let PLIC_PRIORITY = PLIC_BASE + 0x00
 let PLIC_PENDING = PLIC_BASE + 0x1000
@@ -33,11 +33,8 @@ let PLIC_ENABLE = PLIC_BASE + 0x2000
 let PLIC_THRESHOLD = PLIC_BASE + 0x200000
 let PLIC_CLAIM = PLIC_BASE + 0x201004
 
-## CLINT registers
-let CLINT_BASE = 0x02000000
-let CLINT_MSIP = CLINT_BASE + 0x0
-let CLINT_MTIMECMP = CLINT_BASE + 0x4000
-let CLINT_MTIME = CLINT_BASE + 0xBFF8
+## Timer uses SBI TIME extension (portable, works on both
+## QEMU CLINT and SG2002 ACLINT). No direct CLINT/ACLINT MMIO needed.
 
 ## Interrupt handler table
 let irq_handlers = {}

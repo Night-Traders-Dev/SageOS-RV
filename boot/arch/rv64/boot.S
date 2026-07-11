@@ -10,7 +10,11 @@
 #include "sbi.h"
 
 #ifndef UART_BASE
-#  define UART_BASE  0x10000000
+#  ifdef CONFIG_BOARD_LICHERV_NANO
+#    define UART_BASE  0x04140000
+#  else
+#    define UART_BASE  0x10000000
+#  endif
 #endif
 
     .section .text.boot

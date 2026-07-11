@@ -45,8 +45,17 @@ proc board_init():
     print("  SDIO:    Host @ 0x04300000\n")
     print("\n")
     
+    ## Initialize clock tree
+    clkgen_init()
+    
     ## Initialize UART (console should already be up)
     uart_init(UART_BASE)
+    
+    ## Initialize I2C0 (needed for PMIC)
+    i2c_init(0, 400000)
+    
+    ## Initialize PMIC via I2C
+    pmic_init()
     
     ## Initialize PLIC for interrupt handling
     plic_init(PLIC_BASE)

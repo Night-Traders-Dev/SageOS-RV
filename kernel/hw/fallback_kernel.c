@@ -32,9 +32,13 @@
 /* --------------------------------------------------------------------------
  * UART 16550A  (QEMU virt / LicheeRV Nano base address)
  * -------------------------------------------------------------------------- */
-/* UART base — from build system (-DUART_BASE) or board default */
+/* UART base — from build system (-DUART_BASE) or board-aware fallback */
 #ifndef UART_BASE
+#ifdef CONFIG_BOARD_LICHERV_NANO
+#define UART_BASE  0x04140000UL
+#else
 #define UART_BASE  0x10000000UL
+#endif
 #endif
 #define UART_THR   0
 #define UART_RBR   0
@@ -363,7 +367,19 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr
         uart_puts("\n");
     }
 
-    dmesg_write("BOOT: UART 16550A initialized @ 0x10000000");
+    {
+        char uart_msg[64];
+        int ui = 0;
+        const char *base = "BOOT: UART 16550A initialized @ 0x";
+        while (*base) { uart_msg[ui++] = *base++; }
+        uint64_t ub = UART_BASE;
+        for (int shift = 28; shift >= 0; shift -= 4) {
+            int nib = (ub >> shift) & 0xF;
+            uart_msg[ui++] = (nib < 10) ? ('0' + nib) : ('A' + nib - 10);
+        }
+        uart_msg[ui] = 0;
+        dmesg_write(uart_msg);
+    }
     uart_puts("SBIK!\n");
     uart_puts("[SageOS] Booting...\n\n");
     dmesg_write("BOOT: SageOS kernel entry (sage_kernel_main)");

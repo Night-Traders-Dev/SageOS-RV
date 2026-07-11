@@ -230,9 +230,8 @@ proc dtb_parse(dtb_addr):
         elif token == FDT_END:
             sp = totalsz   ## Exit loop
 
-    ## Apply fallback defaults (QEMU virt)
+    ## Apply fallback defaults (board-aware)
     if info.mem_size == 0:
-        info.mem_base = 0x80200000
         info.mem_size = 128 * 1024 * 1024
     if info.timer_freq == 0:
         info.timer_freq = 10000000
@@ -240,6 +239,8 @@ proc dtb_parse(dtb_addr):
         info.uart_base = 0x10000000
     if info.plic_base == 0:
         info.plic_base = 0x0C000000
+    ## The MetalRV64 VM sets net_backend/etc. before running commands;
+    ## dtb overrides for LicheeRV are set by the board BSP at runtime
 
     info.valid = 1
     return info

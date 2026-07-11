@@ -80,8 +80,11 @@ proc vmm_init():
     ## Identity-map first 2MB of kernel space
     vmm_identity_map(0x80200000, 0x80400000, PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
 
-    ## Map UART MMIO
+    ## Map UART MMIO — identity map both QEMU virt (0x10000000)
+    ## and LicheeRV SG2002 (0x04140000) so the correct one is
+    ## accessible regardless of board. Unmapped pages are harmless.
     vmm_map_page(0x10000000, 0x10000000, PTE_V | PTE_R | PTE_W | PTE_G)
+    vmm_map_page(0x04140000, 0x04140000, PTE_V | PTE_R | PTE_W | PTE_G)
 
     return true
 

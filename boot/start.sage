@@ -31,18 +31,22 @@ let SBI_EXT_SRST = 0x53525354
 let SBI_EXT_DBCN = 0x4442434E
 
 ## --- UART Configuration ---
-## QEMU virt: 16550A UART at 0x10000000
-## LicheeRV Nano SG2002: UART at different address (from DTB)
+## QEMU virt:     16550A UART at 0x10000000
+## LicheeRV Nano: 16550A UART at 0x04140000
+## boot.S gets UART_BASE at compile time; boot.sage probes DTB to find it.
 
-let UART_QEMU_VIRT = 0x10000000
 let UART_THR = 0
 let UART_RBR = 0
 let UART_LSR = 5
 let UART_LSR_THRE = 0x20
 let UART_LSR_DR = 0x01
 
+## Probe UART base from DTB, fall back to compile-time default
+let _uart_base = 0x10000000
+
 ## --- Boot Handoff Structure ---
 ## Passed to the kernel from the bootloader
+## Values are filled from DTB at runtime where possible
 
 proc create_handoff(hart_id, dtb_addr):
     let handoff = {}
@@ -50,18 +54,25 @@ proc create_handoff(hart_id, dtb_addr):
     handoff["version"] = 1
     handoff["hart_id"] = hart_id
     handoff["dtb_addr"] = dtb_addr
-    handoff["mem_base"] = 0x80200000
-    handoff["mem_size"] = 128 * 1024 * 1024
-    handoff["uart_base"] = UART_QEMU_VIRT
+    ## Parse DTB to get actual memory/UART layout
+    let dtb_info = dtb_parse(dtb_addr)
+    if dtb_info.valid:
+        handoff["mem_base"] = dtb_info.mem_base
+        handoff["mem_size"] = dtb_info.mem_size
+        handoff["uart_base"] = dtb_info.uart_base
+        _uart_base = dtb_info.uart_base
+    else:
+        ## Fallback defaults (board-agnostic)
+        handoff["mem_base"] = 0x80200000
+        handoff["mem_size"] = 128 * 1024 * 1024
+        handoff["uart_base"] = _uart_base
     return handoff
 
 ## --- Console Output ---
-## Uses SBI console_putchar for early output
+## Uses DTB-probed UART MMIO for early output
 
 proc sbi_putchar(ch):
-    ## In real implementation, this would emit an ecall
-    ## For now, we use direct UART MMIO
-    let uart = UART_QEMU_VIRT
+    let uart = _uart_base
     ## Wait for THR empty
     while (mem_read(uart + UART_LSR, 1) & UART_LSR_THRE) == 0:
         pass

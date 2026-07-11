@@ -179,6 +179,18 @@ int dtb_parse(uint64_t dtb_addr, dtb_info_t *info) {
     }
 
 done:
+#ifdef CONFIG_BOARD_LICHERV_NANO
+    if (info->mem_size == 0) {
+        info->mem_base = 0x80200000;
+        info->mem_size = 256UL * 1024 * 1024;
+    }
+    if (info->timer_freq == 0)
+        info->timer_freq = 25000000;
+    if (info->uart_base == 0)
+        info->uart_base = 0x04140000;
+    if (info->plic_base == 0)
+        info->plic_base = 0x0C000000;
+#else
     if (info->mem_size == 0) {
         info->mem_base = 0x80200000;
         info->mem_size = 128UL * 1024 * 1024;
@@ -189,6 +201,7 @@ done:
         info->uart_base = 0x10000000;
     if (info->plic_base == 0)
         info->plic_base = 0x0C000000;
+#endif
 
     info->valid = 1;
     return 0;
