@@ -1,0 +1,26 @@
+flowchart TB
+    S1["[1/7] Console + DTB"]
+    S2["[2/7] PMM (bitmap page allocator)"]
+    S3["[3/7] VMM (SV39)"]
+    S4["[4/7] Timer (stimecmp / SBI)"]
+    S5["[5/7] SageRTOS — sagertos_glue_init(timer_freq)"]
+    S5a["probe Sstc → stimecmp or SBI"]
+    S5b["zero TCB / queue / timer pools"]
+    S5c["_scheduler_started = 0<br/>(polling mode until sagertos_glue_start)"]
+    S6["[6/7] MetalVM — embed shell.sgvm"]
+    S7["[7/7] Shell — MetalVM shell or C fallback<br/>timer_poll() calls sagertos_glue_tick() each tick<br/>driving task wakeup without full preemption"]
+
+    S1 --> S2 --> S3 --> S4 --> S5
+    S5 --> S5a --> S5b --> S5c
+    S5c --> S6 --> S7
+
+    style S1 fill:#0984e3,color:#fff
+    style S2 fill:#0984e3,color:#fff
+    style S3 fill:#0984e3,color:#fff
+    style S4 fill:#0984e3,color:#fff
+    style S5 fill:#e84393,color:#fff
+    style S5a fill:#e84393,color:#fff
+    style S5b fill:#e84393,color:#fff
+    style S5c fill:#e84393,color:#fff
+    style S6 fill:#6c5ce7,color:#fff
+    style S7 fill:#00b894,color:#fff

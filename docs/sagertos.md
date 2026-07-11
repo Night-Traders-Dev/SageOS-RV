@@ -6,33 +6,7 @@ SageOS-RV uses [SageRTOS](https://github.com/Night-Traders-Dev/SageRTOS) as a Gi
 
 ## Repository Layout
 
-```mermaid
-flowchart LR
-    Root["<b>SageOS-RV/rtos/</b>"]
-    
-    Root --> Sub["<b>SageRTOS/</b><br/><i>(git submodule)</i>"]
-    Root --> GlueH["sagertos_glue.h<br/><i>kernel-facing API shim</i>"]
-    Root --> GlueC["sagertos_glue.c<br/><i>kernel → RTOS bridge</i>"]
-    
-    Sub --> Src["<b>src/</b>"]
-    Src --> C_ARM["<b>c/</b><br/><i>ARM Cortex-M33 original</i>"]
-    Src --> RV64["<b>rv64/</b><br/><i>RISC-V 64 port</i>"]
-    Src --> Sage["<b>sage/</b><br/><i>Sage wrappers</i>"]
-    
-    RV64 --> R1["sagertos_rv64.h<br/><i>TCB, API, CSR macros</i>"]
-    RV64 --> R2["sagertos_rv64.c<br/><i>scheduler, tick, queues</i>"]
-    RV64 --> R3["sagertos_rv64_asm.S<br/><i>context switch trampoline</i>"]
-    
-    Sage --> S1["sagertos.sage<br/><i>ARM wrapper</i>"]
-    Sage --> S2["sagertos_rv64.sage<br/><i>RV64 wrapper</i>"]
-
-    style Root fill:#d63031,color:#fff,stroke:#fff,stroke-width:2px
-    style Sub fill:#0984e3,color:#fff
-    style Src fill:#0984e3,color:#fff
-    style RV64 fill:#00b894,color:#fff
-    style Sage fill:#00b894,color:#fff
-    style C_ARM fill:#636e72,color:#fff
-```
+![SageRTOS Repository Layout](../assets/sagertos_layout.png)
 
 ---
 
@@ -98,20 +72,7 @@ When `SAGE_RTOS` is not defined (RTOS sources absent), every function becomes a 
 
 ## Boot Sequence with RTOS
 
-```
-[1/7] Console + DTB
-[2/7] PMM (bitmap page allocator)
-[3/7] VMM (SV39)
-[4/7] Timer (stimecmp / SBI)
-[5/7] SageRTOS — sagertos_glue_init(timer_freq)
-         ├ probe Sstc → stimecmp or SBI
-         ├ zero TCB / queue / timer pools
-         └ _scheduler_started = 0  (polling mode until sagertos_glue_start)
-[6/7] MetalVM — embed shell.sgvm
-[7/7] Shell — MetalVM shell or C fallback
-         └ timer_poll() calls sagertos_glue_tick() each tick
-           driving task wakeup without full preemption
-```
+![SageRTOS Boot Sequence](../assets/sagertos_boot_sequence.png)
 
 Full preemption (tasks running concurrently) is enabled by calling `sagertos_glue_start()`, which calls `sagertos_rv64_start()` and never returns. The current boot model keeps the C shell in control and ticks the RTOS cooperatively; full preemptive scheduling is the next milestone.
 

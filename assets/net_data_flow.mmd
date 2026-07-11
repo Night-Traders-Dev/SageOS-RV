@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph TX["Transmit (TX)"]
+        direction LR
+        T1[App] --> T2[HTTP] --> T3[TLS encrypt] --> T4[TCP segment] --> T5[IP packet] --> T6[ETH frame] --> T7[WiFi]
+    end
+    
+    subgraph RX["Receive (RX)"]
+        direction LR
+        R1[WiFi] --> R2[ETH parse] --> R3[IP parse] --> R4[TCP reassemble] --> R5[TLS decrypt] --> R6[HTTP] --> R7[App]
+    end
+
+    style T1 fill:#0984e3,color:#fff
+    style T2 fill:#0984e3,color:#fff
+    style T3 fill:#0984e3,color:#fff
+    style T4 fill:#0984e3,color:#fff
+    style T5 fill:#fdcb6e,color:#000
+    style T6 fill:#e17055,color:#fff
+    style T7 fill:#d63031,color:#fff
+    style R1 fill:#d63031,color:#fff
+    style R2 fill:#e17055,color:#fff
+    style R3 fill:#fdcb6e,color:#000
+    style R4 fill:#0984e3,color:#fff
+    style R5 fill:#0984e3,color:#fff
+    style R6 fill:#0984e3,color:#fff
+    style R7 fill:#0984e3,color:#fff

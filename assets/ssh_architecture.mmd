@@ -1,0 +1,14 @@
+flowchart TB
+    CM["<b>cluster_monitor.sage</b><br/>Multi-node RAM checker + cleanup"]
+    SSH["<b>ssh_client.sage</b><br/>SSH-2.0 (RFC 4251-4254)<br/>KEX, auth, channels, command exec"]
+    CR["<b>kernel/crypto/</b><br/>sha256.sage  hmac.sage<br/>FIPS 180-4  RFC 2104"]
+    TCP["<b>TCP/IP stack</b><br/>kernel/net/tcp_stack.sage<br/>socket API: tcp_socket, tcp_connect"]
+    TBk["<b>Transport Backend</b><br/>net_tx / net_rx<br/>'loopback' - software queue<br/>'kernel' - C netdev builtins"]
+
+    CM --> SSH --> CR --> TCP --> TBk
+
+    style CM fill:#6c5ce7,color:#fff
+    style SSH fill:#0984e3,color:#fff
+    style CR fill:#00b894,color:#fff
+    style TCP fill:#fdcb6e,color:#000
+    style TBk fill:#e17055,color:#fff

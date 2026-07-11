@@ -1,0 +1,14 @@
+flowchart LR
+    subgraph NetTX["net_tx(frame)"]
+        LB1["'loopback'<br/>push to software queue"]
+        KB1["'kernel'<br/>C builtin netdev_tx()"]
+    end
+    subgraph NetRX["net_rx()"]
+        LB2["'loopback'<br/>pop from software queue"]
+        KB2["'kernel'<br/>C builtin netdev_rx()"]
+    end
+
+    style LB1 fill:#00b894,color:#fff
+    style LB2 fill:#00b894,color:#fff
+    style KB1 fill:#0984e3,color:#fff
+    style KB2 fill:#0984e3,color:#fff

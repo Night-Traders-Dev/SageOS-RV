@@ -1,0 +1,33 @@
+stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> LISTEN : passive OPEN\n(create TCB)
+    CLOSED --> SYN_SENT : active OPEN\n(create TCB, snd SYN)
+    
+    LISTEN --> SYN_RCVD : rcv SYN\n(snd SYN,ACK)
+    LISTEN --> CLOSED : CLOSE\n(delete TCB)
+    LISTEN --> SYN_SENT : SEND\n(snd SYN)
+    
+    SYN_RCVD --> ESTABLISHED : rcv ACK of SYN
+    SYN_RCVD --> LISTEN : rcv RST
+    SYN_RCVD --> FIN_WAIT_1 : CLOSE\n(snd FIN)
+    
+    SYN_SENT --> SYN_RCVD : rcv SYN\n(snd SYN,ACK)
+    SYN_SENT --> ESTABLISHED : rcv SYN,ACK\n(snd ACK)
+    SYN_SENT --> CLOSED : CLOSE\n(delete TCB)
+    
+    ESTABLISHED --> FIN_WAIT_1 : CLOSE\n(snd FIN)
+    ESTABLISHED --> CLOSE_WAIT : rcv FIN\n(snd ACK)
+    
+    FIN_WAIT_1 --> FIN_WAIT_2 : rcv ACK of FIN
+    FIN_WAIT_1 --> CLOSING : rcv FIN\n(snd ACK)
+    FIN_WAIT_1 --> TIME_WAIT : rcv FIN,ACK\n(snd ACK)
+    
+    FIN_WAIT_2 --> TIME_WAIT : rcv FIN\n(snd ACK)
+    
+    CLOSE_WAIT --> LAST_ACK : CLOSE\n(snd FIN)
+    
+    CLOSING --> TIME_WAIT : rcv ACK of FIN
+    
+    LAST_ACK --> CLOSED : rcv ACK of FIN\n(delete TCB)
+    
+    TIME_WAIT --> CLOSED : Timeout=2MSL\n(delete TCB)

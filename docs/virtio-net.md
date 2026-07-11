@@ -6,28 +6,7 @@ SageOS-RV includes a pure-Sage virtio-net driver for QEMU's virtual NIC, providi
 
 ## Architecture
 
-```
-┌─────────────────────────────────┐
-│  TCP/IP Stack (tcp_stack.sage)  │
-│  socket API: tcp_socket,        │
-│  tcp_connect, tcp_poll          │
-├─────────────────────────────────┤
-│  Transport Backend (net_tx/rx)  │
-│  "loopback" — software queue    │
-│  "kernel"   — C netdev builtins │
-├─────────────────────────────────┤
-│  MetalRV64 VM Builtins          │
-│  netdev_tx / netdev_rx /        │
-│  netdev_now                     │
-├─────────────────────────────────┤
-│  virtio-net Driver (Sage)       │
-│  virtqueue ring management      │
-│  descriptor table, avail/used   │
-├─────────────────────────────────┤
-│  QEMU virtio-net-pci device     │
-│  PCI BAR MMIO, vhost-user       │
-└─────────────────────────────────┘
-```
+![Virtio-Net Architecture](../assets/virtio_net_architecture.png)
 
 ## Transport Backend
 

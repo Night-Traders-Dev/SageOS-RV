@@ -6,27 +6,7 @@ SageOS-RV includes a pure-Sage SSH-2.0 client for remote cluster management.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────┐
-│  cluster_monitor.sage                   │
-│  Multi-node RAM checker + cleanup       │
-├─────────────────────────────────────────┤
-│  ssh_client.sage                        │
-│  SSH-2.0 protocol (RFC 4251-4254)      │
-│  KEX, auth, channels, command exec     │
-├─────────────────────────────────────────┤
-│  kernel/crypto/                         │
-│  sha256.sage  hmac.sage                │
-│  FIPS 180-4    RFC 2104               │
-├─────────────────────────────────────────┤
-│  TCP/IP stack (kernel/net/tcp_stack.sage)│
-│  socket API: tcp_socket, tcp_connect    │
-├─────────────────────────────────────────┤
-│  Transport Backend (net_tx/net_rx)      │
-│  "loopback" — software queue for tests  │
-│  "kernel"   — C netdev builtins → NIC  │
-└─────────────────────────────────────────┘
-```
+![SSH Architecture](../assets/ssh_architecture.png)
 
 ---
 

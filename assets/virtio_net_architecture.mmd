@@ -1,0 +1,14 @@
+flowchart TB
+    TCP["<b>TCP/IP Stack</b><br/>tcp_stack.sage<br/>socket API: tcp_socket, tcp_connect, tcp_poll"]
+    TBk["<b>Transport Backend</b><br/>net_tx / net_rx<br/>'loopback' - software queue<br/>'kernel' - C netdev builtins"]
+    VM["<b>MetalRV64 VM Builtins</b><br/>netdev_tx / netdev_rx / netdev_now"]
+    VN["<b>virtio-net Driver (Sage)</b><br/>virtqueue ring management<br/>descriptor table, avail/used"]
+    QEMU["<b>QEMU virtio-net-pci device</b><br/>PCI BAR MMIO, vhost-user"]
+
+    TCP --> TBk --> VM --> VN --> QEMU
+
+    style TCP fill:#0984e3,color:#fff
+    style TBk fill:#00b894,color:#fff
+    style VM fill:#6c5ce7,color:#fff
+    style VN fill:#e17055,color:#fff
+    style QEMU fill:#d63031,color:#fff

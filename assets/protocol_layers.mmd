@@ -1,0 +1,20 @@
+flowchart TB
+    L1["<b>HTTP (RFC 7230)</b> — GET/POST client"]
+    L2["<b>TLS 1.3 (RFC 8446)</b> — encryption<br/><i>AES-128-GCM, ClientHello handshake</i>"]
+    L3["<b>TCP (RFC 793)</b> — reliable transport<br/><i>11-state FSM, 3-way handshake</i>"]
+    L4["<b>UDP (RFC 768)</b> — datagram transport"]
+    L5["<b>DNS (RFC 1035)</b> — name resolution<br/><b>DHCP (RFC 2131)</b> — IP configuration"]
+    L6["<b>IPv4 (RFC 791)</b> — network layer<br/><i>Checksums, fragmentation, routing</i>"]
+    L7["<b>Ethernet (IEEE 802.3)</b> — MAC layer<br/><i>14-byte frames, EtherType dispatch</i>"]
+    L8["<b>WiFi Driver (AIC8800D)</b><br/><i>SDIO transport, firmware loading</i>"]
+    
+    L1 --- L2 --- L3 --- L4 --- L5 --- L6 --- L7 --- L8
+    
+    style L1 fill:#0984e3,color:#fff
+    style L2 fill:#0984e3,color:#fff
+    style L3 fill:#0984e3,color:#fff
+    style L4 fill:#00b894,color:#fff
+    style L5 fill:#00b894,color:#fff
+    style L6 fill:#fdcb6e,color:#000
+    style L7 fill:#e17055,color:#fff
+    style L8 fill:#d63031,color:#fff
