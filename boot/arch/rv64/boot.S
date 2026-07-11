@@ -91,6 +91,7 @@ _start:
     ## Restore hart_id and dtb_addr, then call kernel main
     mv   a0, s0
     mv   a1, s1
+    li   a2, 0       ## No SageBoot handoff struct in bare-metal fallback mode
     call sage_kernel_main
 
     ## Halt

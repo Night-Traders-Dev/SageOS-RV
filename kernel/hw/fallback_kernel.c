@@ -346,14 +346,23 @@ void trap_handler_c(uint64_t *regs, uint64_t cause, uint64_t tval) {
 }
 
 /* --------------------------------------------------------------------------
- * sage_kernel_main — called from boot/arch/rv64/boot.S
+ * sage_kernel_main — The primary C entry point
+ * Called by boot.S (or SageBoot) with hart_id, dtb_addr, and an optional SageBoot handoff struct
  * -------------------------------------------------------------------------- */
-void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr) {
-    (void)hart_id;
-    (void)dtb_addr;
-
+void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr) {
     uart_init();
     dmesg_init();
+
+    dmesg_write("SageOS-RV kernel starting...\n");
+    uart_puts("SageOS-RV: Starting hardware initialization.\n");
+
+    if (handoff_addr != 0) {
+        uart_puts("SageBoot handoff detected at ");
+        /* Optional: We could parse SAGEOSBI handoff struct here to get memory map / cmdline */
+        uart_putc('0' + (handoff_addr >> 28) % 16);
+        uart_puts("\n");
+    }
+
     dmesg_write("BOOT: UART 16550A initialized @ 0x10000000");
     uart_puts("SBIK!\n");
     uart_puts("[SageOS] Booting...\n\n");
