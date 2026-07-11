@@ -450,6 +450,12 @@ if [ "${USE_SAGEVM:-0}" = "1" ]; then
         -c "${SCRIPT_DIR}/kernel/hw/vmm.c" \
         -o "${BUILD_DIR}/vmm.o" || fail "VMM compile failed"
 
+    ## 6.1 USB CDC ACM Gadget
+    info "Compiling USB CDC ACM gadget..."
+    $CC $BM_CFLAGS $BM_DEFS -I"${KERNEL_INC}" -I"${KERNEL_HW}" \
+        -c "${SCRIPT_DIR}/kernel/drivers/usb_cdc_acm.c" \
+        -o "${BUILD_DIR}/usb_cdc_acm.o" || fail "USB CDC ACM compile failed"
+
     ## 7. Drivers
     info "Compiling drivers..."
     while IFS= read -r -d '' sage_file; do
@@ -503,6 +509,7 @@ if [ "${USE_SAGEVM:-0}" = "1" ]; then
         "${BUILD_DIR}/kernel.o" \
         "${BUILD_DIR}/dtb.o" \
         "${BUILD_DIR}/vmm.o" \
+        "${BUILD_DIR}/usb_cdc_acm.o" \
         "${METAL_OBJS[@]}" \
         "${rtos_objs[@]}" \
         $sgvm_objs \

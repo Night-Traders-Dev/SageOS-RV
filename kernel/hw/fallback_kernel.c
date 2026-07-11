@@ -28,6 +28,8 @@
 #include "sagertos_glue.h"
 #endif
 
+#include "../drivers/usb_cdc_acm.h"
+
 
 /* --------------------------------------------------------------------------
  * UART 16550A  (QEMU virt / LicheeRV Nano base address)
@@ -356,6 +358,7 @@ void trap_handler_c(uint64_t *regs, uint64_t cause, uint64_t tval) {
 void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr) {
     uart_init();
     dmesg_init();
+    usb_init();
 
     dmesg_write("SageOS-RV kernel starting...\n");
     uart_puts("SageOS-RV: Starting hardware initialization.\n");
@@ -488,7 +491,9 @@ void sage_kernel_main(uint64_t hart_id, uint64_t dtb_addr, uint64_t handoff_addr
         char suggestion[256] = ""; int suggest_len = 0;
 
         while (pos < 254) {
+            usb_poll_main();
             int c = uart_getchar();
+            if (c < 0) c = usb_getchar();
             if (c < 0) continue;
 
             // --- Ctrl key combos ---
